@@ -43,7 +43,7 @@ const BACKUP_FOLDER = path.join(LOGS_FOLDER, 'backups');
 const LOG_BACKUP_DAYS = 30; // Auto backup after 30 days
 
 // ========================================
-// PROXY CONFIGURATION (residential egress)
+// PROXY CONFIGURATION (residential egress) - MANDATORY
 // ========================================
 // Baileys does NOT honour the HTTP_PROXY / HTTPS_PROXY environment variables,
 // so the agents have to be injected explicitly into makeWASocket().
@@ -51,23 +51,35 @@ const LOG_BACKUP_DAYS = 30; // Auto backup after 30 days
 //   - PROXY_WS_AGENT   : a Node http.Agent, used by `ws` for the WhatsApp socket
 //   - PROXY_DISPATCHER : an undici Dispatcher, used by global fetch() for media
 //                        upload/download and history sync
+//
+// FAIL-CLOSED POLICY: WhatsApp traffic must NEVER leave through the datacenter IP.
+// If the proxy is not configured, or its agents cannot be built, the process
+// refuses to start instead of silently falling back to a direct connection.
+// If the proxy goes down while running, every socket/fetch through these agents
+// fails, the WhatsApp connection drops, and reconnection keeps failing until the
+// proxy is back - there is no code path that bypasses it.
 const PROXY_URL = process.env.P2SPEED_PROXY || '';
+
+if (!PROXY_URL) {
+    console.error('[Proxy] FATAL: P2SPEED_PROXY is not set.');
+    console.error('[Proxy] Refusing to start - WhatsApp must never connect from the datacenter IP.');
+    process.exit(1);
+}
 
 let PROXY_WS_AGENT;      // -> makeWASocket({ agent })
 let PROXY_DISPATCHER;    // -> makeWASocket({ fetchAgent, options.dispatcher })
 
-if (PROXY_URL) {
+try {
+    const { ProxyAgent } = require('undici');
     PROXY_WS_AGENT = new HttpsProxyAgent(PROXY_URL);
-    try {
-        const { ProxyAgent } = require('undici');
-        PROXY_DISPATCHER = new ProxyAgent(PROXY_URL);
-    } catch (err) {
-        console.warn('[Proxy] "undici" not installed - media transfers will bypass the proxy:', err.message);
-    }
-    console.log(`[Proxy] WhatsApp egress through ${PROXY_URL}`);
-} else {
-    console.warn('[Proxy] P2SPEED_PROXY is not set - connecting directly (datacenter IP)');
+    PROXY_DISPATCHER = new ProxyAgent(PROXY_URL);
+} catch (err) {
+    console.error('[Proxy] FATAL: could not build the proxy agents:', err.message);
+    console.error('[Proxy] Run "npm install https-proxy-agent undici" and check P2SPEED_PROXY.');
+    process.exit(1);
 }
+
+console.log(`[Proxy] All WhatsApp traffic forced through ${PROXY_URL}`);
 
 // Google Drive Configuration
 const GOOGLE_CREDENTIALS_FILE = process.env.GOOGLE_CREDENTIALS_FILE || path.join(__dirname, 'google-credentials.json');
@@ -447,9 +459,9 @@ async function startWhatsApp() {
         const { state, saveCreds } = await useMultiFileAuthState(AUTH_FOLDER);
 
         whatsappSocket = makeWASocket({
-            agent: PROXY_WS_AGENT,                                        // WebSocket connection
-            fetchAgent: PROXY_DISPATCHER,                                 // media upload
-            options: PROXY_DISPATCHER ? { dispatcher: PROXY_DISPATCHER } : {}, // media / history download
+            agent: PROXY_WS_AGENT,                        // WebSocket connection
+            fetchAgent: PROXY_DISPATCHER,                 // media upload
+            options: { dispatcher: PROXY_DISPATCHER },    // media / history download
             auth: state,
             printQRInTerminal: false // We display QR in web UI instead
         });
