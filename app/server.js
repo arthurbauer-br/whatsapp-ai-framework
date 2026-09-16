@@ -18,6 +18,9 @@ const axios = require('axios');
 const QRCode = require('qrcode');
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 
+// Proxy agent (Baileys ignores the HTTP_PROXY / HTTPS_PROXY env vars)
+const { HttpsProxyAgent } = require('https-proxy-agent');
+
 // Anti-Ban & Settings Modules
 const { AntiBanManager, safeSendMessage, simulateTyping, delay } = require('./src/utils/anti-ban');
 const { loadSettings, getAntiBanSettings, updateAntiBanSettings } = require('./src/utils/settings');
@@ -38,6 +41,33 @@ const LOGS_FOLDER = path.join(__dirname, 'logs');
 const LOGS_FILE = path.join(LOGS_FOLDER, 'activity.json');
 const BACKUP_FOLDER = path.join(LOGS_FOLDER, 'backups');
 const LOG_BACKUP_DAYS = 30; // Auto backup after 30 days
+
+// ========================================
+// PROXY CONFIGURATION (residential egress)
+// ========================================
+// Baileys does NOT honour the HTTP_PROXY / HTTPS_PROXY environment variables,
+// so the agents have to be injected explicitly into makeWASocket().
+// Two different kinds of agent are needed:
+//   - PROXY_WS_AGENT   : a Node http.Agent, used by `ws` for the WhatsApp socket
+//   - PROXY_DISPATCHER : an undici Dispatcher, used by global fetch() for media
+//                        upload/download and history sync
+const PROXY_URL = process.env.P2SPEED_PROXY || '';
+
+let PROXY_WS_AGENT;      // -> makeWASocket({ agent })
+let PROXY_DISPATCHER;    // -> makeWASocket({ fetchAgent, options.dispatcher })
+
+if (PROXY_URL) {
+    PROXY_WS_AGENT = new HttpsProxyAgent(PROXY_URL);
+    try {
+        const { ProxyAgent } = require('undici');
+        PROXY_DISPATCHER = new ProxyAgent(PROXY_URL);
+    } catch (err) {
+        console.warn('[Proxy] "undici" not installed - media transfers will bypass the proxy:', err.message);
+    }
+    console.log(`[Proxy] WhatsApp egress through ${PROXY_URL}`);
+} else {
+    console.warn('[Proxy] P2SPEED_PROXY is not set - connecting directly (datacenter IP)');
+}
 
 // Google Drive Configuration
 const GOOGLE_CREDENTIALS_FILE = process.env.GOOGLE_CREDENTIALS_FILE || path.join(__dirname, 'google-credentials.json');
@@ -417,6 +447,9 @@ async function startWhatsApp() {
         const { state, saveCreds } = await useMultiFileAuthState(AUTH_FOLDER);
 
         whatsappSocket = makeWASocket({
+            agent: PROXY_WS_AGENT,                                        // WebSocket connection
+            fetchAgent: PROXY_DISPATCHER,                                 // media upload
+            options: PROXY_DISPATCHER ? { dispatcher: PROXY_DISPATCHER } : {}, // media / history download
             auth: state,
             printQRInTerminal: false // We display QR in web UI instead
         });
