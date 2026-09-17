@@ -900,6 +900,72 @@ app.post('/api/disconnect', async (req, res) => {
     res.json({ success: true, message: 'Disconnected' });
 });
 
+// ========================================
+// OUTBOUND SEND API (used by n8n for expiry notices)
+// ========================================
+// Protected by the same N8N_TOKEN the Flask panel uses (views/n8n.py).
+// Without N8N_TOKEN in the environment the route stays disabled, so it can
+// never be reached by accident.
+const N8N_TOKEN = (process.env.N8N_TOKEN || '').trim();
+
+function isSendAuthorized(req) {
+    if (!N8N_TOKEN) return false;
+    const crypto = require('crypto');
+    const header = req.get('X-N8N-Token') || '';
+    const auth = req.get('Authorization') || '';
+    const received = (header || (auth.toLowerCase().startsWith('bearer ') ? auth.slice(7) : '')).trim();
+    if (!received) return false;
+    const a = Buffer.from(received);
+    const b = Buffer.from(N8N_TOKEN);
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+app.post('/api/send', async (req, res) => {
+    if (!isSendAuthorized(req)) {
+        return res.status(403).json({ error: 'nao_autorizado', hint: 'send the X-N8N-Token header' });
+    }
+
+    const { to, message } = req.body || {};
+    if (!to || !message) {
+        return res.status(400).json({ error: 'to_and_message_required' });
+    }
+
+    if (connectionStatus !== 'connected' || !whatsappSocket) {
+        return res.status(503).json({ error: 'whatsapp_disconnected', status: connectionStatus });
+    }
+
+    const digits = String(to).replace(/\D/g, '');
+    if (digits.length < 10) {
+        return res.status(400).json({ error: 'invalid_number', to });
+    }
+
+    try {
+        // Confirm the number is actually on WhatsApp before sending.
+        // Messaging unregistered numbers is a strong ban signal.
+        const [check] = await whatsappSocket.onWhatsApp(digits);
+        if (!check || !check.exists) {
+            logActivity(`Send skipped - ${digits} is not on WhatsApp`, 'warning');
+            return res.status(404).json({ sent: false, error: 'not_on_whatsapp', to: digits });
+        }
+
+        // safeSendMessage applies the anti-ban rate limits and human-like delays.
+        const result = await safeSendMessage(whatsappSocket, check.jid, message, '', antiBanManager);
+
+        if (!result.sent) {
+            logActivity(`Send blocked for ${digits}: ${result.reason}`, 'warning');
+            return res.status(429).json({ sent: false, reason: result.reason, waitTime: result.waitTime });
+        }
+
+        logActivity(`Sent notice to ${digits} (delayed ${result.delay}ms)`, 'success');
+        broadcastAntiBanStats();
+        return res.json({ sent: true, to: digits, jid: check.jid, delay: result.delay });
+    } catch (error) {
+        console.error('[Send] Error:', error.message);
+        logActivity(`Send error for ${digits}: ${error.message}`, 'error');
+        return res.status(500).json({ sent: false, error: error.message });
+    }
+});
+
 // Get settings
 app.get('/api/settings', (req, res) => {
     const { getSettings } = require('./src/utils/settings');
