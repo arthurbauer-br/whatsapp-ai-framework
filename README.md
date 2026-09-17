@@ -6,7 +6,23 @@
 ![Status](https://img.shields.io/badge/status-stable-green.svg)
 ![Node](https://img.shields.io/badge/node-v18%2B-green)
 
-**Note:** This is the open-source community edition of the internal framework used by [GX Automation Tech](https://gxautomation.tech). For enterprise-grade, fully compliant WhatsApp solutions (Green Tick verification), please contact us for our official **respond.io** implementation services.
+> ### 🔀 This is a fork
+>
+> Built for **self-hosted VPS deployments**. It adds three things to the
+> upstream project:
+>
+> - **Residential proxy egress**, injected into Baileys the way v7 actually
+>   requires — and fail-closed, so the bot refuses to start rather than connect
+>   from a datacenter IP.
+> - **`POST /api/send`**, so an external scheduler can send outbound messages
+>   through the anti-ban pipeline instead of bypassing it.
+> - **Silence when unconfigured**, replacing the hardcoded placeholder reply
+>   that went out to real contacts.
+>
+> Full details, including the Baileys v7 `agent` vs `fetchAgent` gotcha that
+> costs people their media transfers: **[What's different in this fork](./docs/FORK_CHANGES.md)** · **[Em português](./docs/FORK_CHANGES.pt-BR.md)**
+
+**Upstream:** this project is a fork of the open-source community edition of the internal framework built by [GX Automation Tech](https://gxautomation.tech). The anti-ban engine, admin panel and n8n architecture are theirs. For enterprise-grade, fully compliant WhatsApp solutions (Green Tick verification), contact them about their official **respond.io** implementation services.
 
 ---
 
@@ -60,7 +76,7 @@ Before you begin, ensure you have:
 
 1.  **Clone the repository:**
     ```bash
-    git clone https://github.com/yourusername/whatsapp-ai-framework.git
+    git clone https://github.com/arthurbauer-br/whatsapp-ai-framework.git
     cd whatsapp-ai-framework
     ```
 
@@ -70,7 +86,15 @@ Before you begin, ensure you have:
     npm install
     ```
 
-3.  **Start the Server:**
+3.  **Set the required proxy variable.** This fork will not start without it —
+    see [FORK_CHANGES.md](./docs/FORK_CHANGES.md#1-residential-proxy-support-fail-closed)
+    for why.
+    ```bash
+    cp .env.example .env
+    # then edit .env and set P2SPEED_PROXY=http://your-proxy-host:port
+    ```
+
+4.  **Start the Server:**
     ```bash
     npm start
     ```
