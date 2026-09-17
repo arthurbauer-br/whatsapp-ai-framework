@@ -85,12 +85,9 @@ console.log(`[Proxy] All WhatsApp traffic forced through ${PROXY_URL}`);
 const GOOGLE_CREDENTIALS_FILE = process.env.GOOGLE_CREDENTIALS_FILE || path.join(__dirname, 'google-credentials.json');
 const GOOGLE_DRIVE_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID || ''; // Folder ID from Google Drive URL
 
-// Default reply when n8n is not configured
-const DEFAULT_REPLY = `Thank you for your message! Our AI assistant is being set up.
-
-感谢您的消息！我们的AI助手正在设置中。
-
-Terima kasih atas mesej anda! Pembantu AI kami sedang disediakan.`;
+// Reply sent when n8n is not configured.
+// Empty string = stay silent (nothing is sent to the contact).
+const DEFAULT_REPLY = process.env.DEFAULT_REPLY || '';
 
 // ========================================
 // STATE MANAGEMENT
