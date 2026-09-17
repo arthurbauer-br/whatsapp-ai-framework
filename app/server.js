@@ -586,6 +586,14 @@ async function handleIncomingMessage(msg) {
         const activeWebhookUrl = getSetting('n8nWebhookUrl') || N8N_WEBHOOK_URL;
 
         if (activeWebhookUrl === 'YOUR_N8N_WEBHOOK_URL_HERE' || !activeWebhookUrl) {
+            // No n8n webhook configured. Stay silent unless DEFAULT_REPLY is set,
+            // so contacts never get a placeholder answer.
+            if (!DEFAULT_REPLY) {
+                console.log('[Message] n8n not configured and DEFAULT_REPLY empty - staying silent');
+                logActivity(`Message from ${phoneNumber} received, no reply sent (n8n not configured)`, 'warning');
+                return;
+            }
+
             console.log('[Message] n8n not configured, sending default reply');
             if (antiBanManager) {
                 // Use safe send with anti-ban protections even for default reply
