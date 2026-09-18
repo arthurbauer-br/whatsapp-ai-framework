@@ -86,8 +86,13 @@ alerts.
 ```
 POST /api/send
 X-N8N-Token: <token>
-{ "to": "5551999999999", "message": "..." }
+{ "to": "5551999999999", "message": "...", "kind": "outbound" }
 ```
+
+`kind` picks which rate-limit budget the send is charged to: `"reply"` for
+answering someone who wrote in, anything else (or omitted) for a conversation
+you are starting. The default is the stricter budget on purpose — forgetting
+the field costs you the tighter limit, never the looser one.
 
 Three decisions worth knowing about:
 

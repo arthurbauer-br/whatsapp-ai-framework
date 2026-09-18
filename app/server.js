@@ -22,7 +22,7 @@ const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = requi
 const { HttpsProxyAgent } = require('https-proxy-agent');
 
 // Anti-Ban & Settings Modules
-const { AntiBanManager, safeSendMessage, simulateTyping, delay } = require('./src/utils/anti-ban');
+const { AntiBanManager, safeSendMessage, simulateTyping, delay, getQueueDepth } = require('./src/utils/anti-ban');
 const { loadSettings, getAntiBanSettings, updateAntiBanSettings } = require('./src/utils/settings');
 
 // ========================================
@@ -106,8 +106,17 @@ const wsClients = new Set();
 const contactLastActivity = new Map(); // phone -> timestamp
 const PROCESSING_MSG_COOLDOWN = 30 * 60 * 1000; // 30 minutes in milliseconds
 
-// Anti-Ban Manager instance
-let antiBanManager = null;
+// Anti-Ban Manager instances - two separate budgets.
+//
+// Replying to someone who wrote to you first is far lower risk than starting a
+// conversation nobody asked for. Sharing one budget means a batch of outbound
+// notices can silently starve the support replies (or the reverse), so the two
+// count separately.
+//
+// They still share the global send queue in anti-ban.js, so the account never
+// types in two chats at once regardless of which budget a message came from.
+let antiBanManager = null;    // replies to inbound messages
+let antiBanOutbound = null;   // messages WE initiate (POST /api/send)
 
 // ========================================
 // MESSAGE EXTRACTION HELPER
@@ -536,6 +545,47 @@ async function startWhatsApp() {
 }
 
 /**
+ * Resolve a message key to the contact's phone number, in digits.
+ *
+ * `key.remoteJid` can arrive in two addressing modes:
+ *   - `5551999999999@s.whatsapp.net` - the phone number itself
+ *   - `261692424470673@lid`          - a LID, an opaque per-account id
+ *
+ * A LID is NOT a phone number and matches nothing in a customer database, so
+ * it has to be translated. Baileys gives two ways, tried in order:
+ *   1. `key.remoteJidAlt`, the alternate address that ships with the message
+ *   2. the LID mapping store, which the socket keeps and persists
+ *
+ * @param {object} key - msg.key from Baileys
+ * @returns {Promise<string|null>} digits only, or null when unresolvable
+ */
+async function resolvePhoneNumber(key) {
+    const jid = key?.remoteJid || '';
+
+    if (jid.endsWith('@s.whatsapp.net')) {
+        return jid.split('@')[0].split(':')[0];
+    }
+
+    const alt = key?.remoteJidAlt || '';
+    if (alt.endsWith('@s.whatsapp.net')) {
+        return alt.split('@')[0].split(':')[0];
+    }
+
+    if (jid.endsWith('@lid')) {
+        try {
+            const pn = await whatsappSocket?.signalRepository?.lidMapping?.getPNForLID(jid);
+            if (pn) return String(pn).split('@')[0].split(':')[0];
+        } catch (error) {
+            console.log('[Message] LID lookup failed:', error.message);
+        }
+        console.log(`[Message] Could not resolve ${jid} to a phone number`);
+        return null;
+    }
+
+    return jid.split('@')[0].split(':')[0] || null;
+}
+
+/**
  * Handle incoming WhatsApp message
  * Implements anti-ban protections: rate limiting, typing indicators, human-like delays
  */
@@ -548,18 +598,21 @@ async function handleIncomingMessage(msg) {
         const from = msg.key.remoteJid;
         const { text: messageText, quotedText, isReply, messageType } = extractMessageContent(msg.message);
 
-        // Skip empty messages or status broadcasts
-        if (!messageText || from === 'status@broadcast') return;
+        // Skip empty messages, status broadcasts and groups.
+        // Groups are skipped on purpose: this bot answers one-to-one support
+        // chats, and replying inside a group is both useless and conspicuous.
+        if (!messageText || from === 'status@broadcast' || from.endsWith('@g.us')) return;
 
-        // Skip media-only messages without text (optional - remove if you want to handle these)
-        if (messageText.startsWith('[') && messageText.endsWith(']') && !messageText.includes(':')) {
-            // This is a media placeholder like [Image], [Video], [Voice Note], [Sticker]
-            console.log(`[Message] Skipping media-only message: ${messageText}`);
-            return;
-        }
+        // NOTE: media-only messages ([Image], [Voice Note], [Sticker], ...) are
+        // forwarded, not dropped. The webhook needs to see them to answer
+        // things like "I can't listen to audio, pick an option below" - and a
+        // contact who gets no answer at all just sends another voice note.
 
-        // Format phone number
-        const phoneNumber = from.replace('@s.whatsapp.net', '');
+        // Resolve the real phone number. `remoteJid` is not always a phone JID:
+        // WhatsApp increasingly addresses chats by LID (`<id>@lid`), and the
+        // old `from.replace('@s.whatsapp.net', '')` silently returned the LID
+        // itself, which matches no customer record anywhere.
+        const phoneNumber = await resolvePhoneNumber(msg.key);
         const timestamp = new Date().toISOString();
 
         // Log with reply context if present
@@ -609,14 +662,13 @@ async function handleIncomingMessage(msg) {
             return;
         }
 
-        // ========================================
-        // ANTI-BAN: Show typing indicator (no "Processing..." text)
-        // ========================================
-        try {
-            await whatsappSocket.sendPresenceUpdate('composing', from);
-        } catch (presenceError) {
-            console.log('[Anti-Ban] Typing indicator failed:', presenceError.message);
-        }
+        // NOTE: no typing indicator here on purpose.
+        //
+        // This used to fire `composing` for `from` before calling n8n, which
+        // escaped the global send queue: a contact writing in during another
+        // send made a second chat light up as "typing" at the same instant.
+        // safeSendMessage() shows the indicator at the right moment, inside
+        // the queue, so this one only broke the illusion it was meant to sell.
 
         // Update last activity timestamp
         contactLastActivity.set(phoneNumber, Date.now());
@@ -624,8 +676,12 @@ async function handleIncomingMessage(msg) {
         // Send to n8n webhook (includes reply context if present)
         console.log('[Message] Sending to n8n...');
         const webhookPayload = {
+            // Digits only, resolved from the LID when needed. NULL when it
+            // could not be resolved - the receiver must handle that rather
+            // than assume a number is always present.
             from: phoneNumber,
-            fromJid: from,
+            fromJid: from,          // raw JID, which is what replies are addressed to
+            addressedByLid: from.endsWith('@lid'),
             message: messageText,
             timestamp: timestamp,
             messageId: msg.key.id,
@@ -930,10 +986,20 @@ app.post('/api/send', async (req, res) => {
         return res.status(403).json({ error: 'nao_autorizado', hint: 'send the X-N8N-Token header' });
     }
 
-    const { to, message } = req.body || {};
+    const { to, message, kind } = req.body || {};
     if (!to || !message) {
         return res.status(400).json({ error: 'to_and_message_required' });
     }
+
+    // Which budget this send is charged to.
+    //
+    //   kind: "reply"    -> answering someone who wrote to us (support panel)
+    //   anything else    -> a conversation we are starting (scheduled notices)
+    //
+    // The default is deliberately the strict one: forgetting the field costs
+    // you the tighter limit, never the looser one.
+    const budget = kind === 'reply' ? antiBanManager : antiBanOutbound;
+    const budgetName = kind === 'reply' ? 'replies' : 'outbound';
 
     if (connectionStatus !== 'connected' || !whatsappSocket) {
         return res.status(503).json({ error: 'whatsapp_disconnected', status: connectionStatus });
@@ -953,17 +1019,24 @@ app.post('/api/send', async (req, res) => {
             return res.status(404).json({ sent: false, error: 'not_on_whatsapp', to: digits });
         }
 
-        // safeSendMessage applies the anti-ban rate limits and human-like delays.
-        const result = await safeSendMessage(whatsappSocket, check.jid, message, '', antiBanManager);
+        // safeSendMessage applies the anti-ban rate limits and human-like delays,
+        // and waits its turn in the global send queue.
+        const result = await safeSendMessage(whatsappSocket, check.jid, message, '', budget);
 
         if (!result.sent) {
-            logActivity(`Send blocked for ${digits}: ${result.reason}`, 'warning');
-            return res.status(429).json({ sent: false, reason: result.reason, waitTime: result.waitTime });
+            logActivity(`Send blocked for ${digits} (${budgetName}): ${result.reason}`, 'warning');
+            return res.status(429).json({
+                sent: false, budget: budgetName,
+                reason: result.reason, waitTime: result.waitTime
+            });
         }
 
-        logActivity(`Sent notice to ${digits} (delayed ${result.delay}ms)`, 'success');
+        logActivity(`Sent to ${digits} (${budgetName}, delayed ${result.delay}ms)`, 'success');
         broadcastAntiBanStats();
-        return res.json({ sent: true, to: digits, jid: check.jid, delay: result.delay });
+        return res.json({
+            sent: true, to: digits, jid: check.jid,
+            delay: result.delay, budget: budgetName
+        });
     } catch (error) {
         console.error('[Send] Error:', error.message);
         logActivity(`Send error for ${digits}: ${error.message}`, 'error');
@@ -1009,11 +1082,17 @@ app.get('/api/health', (req, res) => {
 // ========================================
 
 // Get anti-ban stats (current message counts)
+// Keeps the flat shape of the replies budget for the existing admin panel,
+// and adds the outbound budget and the send-queue depth alongside it.
 app.get('/api/anti-ban/stats', (req, res) => {
     if (!antiBanManager) {
         return res.status(503).json({ error: 'Anti-ban system not initialized' });
     }
-    res.json(antiBanManager.getStats());
+    res.json({
+        ...antiBanManager.getStats(),
+        outbound: antiBanOutbound ? antiBanOutbound.getStats() : null,
+        queueDepth: getQueueDepth()
+    });
 });
 
 // Get anti-ban health (usage percentages + warnings)
@@ -1021,7 +1100,11 @@ app.get('/api/anti-ban/health', (req, res) => {
     if (!antiBanManager) {
         return res.status(503).json({ error: 'Anti-ban system not initialized' });
     }
-    res.json(antiBanManager.getHealth());
+    res.json({
+        ...antiBanManager.getHealth(),
+        outbound: antiBanOutbound ? antiBanOutbound.getHealth() : null,
+        queueDepth: getQueueDepth()
+    });
 });
 
 // Get anti-ban settings
@@ -1077,6 +1160,55 @@ app.post('/api/anti-ban/settings', async (req, res) => {
         res.json({ success: true, settings: newSettings });
     } catch (error) {
         console.error('[API] Anti-ban settings error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get the OUTBOUND budget - limits for conversations we start
+app.get('/api/anti-ban/outbound/settings', (req, res) => {
+    const { PRESETS } = require('./src/utils/anti-ban');
+    const { getOutboundSettings } = require('./src/utils/settings');
+    res.json({
+        current: getOutboundSettings(),
+        presets: PRESETS
+    });
+});
+
+// Update the OUTBOUND budget
+app.post('/api/anti-ban/outbound/settings', async (req, res) => {
+    try {
+        const { preset, messagesPerHour, messagesPerDay, uniqueChatsPerHour, uniqueChatsPerDay } = req.body;
+
+        if (!preset && !messagesPerHour && !messagesPerDay && !uniqueChatsPerHour && !uniqueChatsPerDay) {
+            return res.status(400).json({ error: 'No settings provided' });
+        }
+
+        const { PRESETS } = require('./src/utils/anti-ban');
+        if (preset && preset !== 'custom' && !PRESETS[preset]) {
+            return res.status(400).json({ error: `Invalid preset: ${preset}. Valid presets: ${Object.keys(PRESETS).join(', ')}` });
+        }
+
+        const updates = {};
+        if (preset) updates.preset = preset;
+        if (messagesPerHour) updates.messagesPerHour = parseInt(messagesPerHour);
+        if (messagesPerDay) updates.messagesPerDay = parseInt(messagesPerDay);
+        if (uniqueChatsPerHour) updates.uniqueChatsPerHour = parseInt(uniqueChatsPerHour);
+        if (uniqueChatsPerDay) updates.uniqueChatsPerDay = parseInt(uniqueChatsPerDay);
+
+        const { updateOutboundSettings } = require('./src/utils/settings');
+        const newSettings = await updateOutboundSettings(updates);
+
+        if (antiBanOutbound) {
+            antiBanOutbound.updateLimits(newSettings);
+        }
+
+        broadcastAntiBanStats();
+        broadcast({ type: 'antiBanOutboundSettings', data: newSettings });
+
+        logActivity(`Outbound limits updated: ${preset || 'custom'}`, 'info');
+        res.json({ success: true, settings: newSettings });
+    } catch (error) {
+        console.error('[API] Outbound settings error:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -1237,8 +1369,15 @@ Initializing...
 
     // Initialize settings and anti-ban manager
     const settings = await loadSettings();
-    antiBanManager = new AntiBanManager(settings.antiBan);
-    console.log('[Anti-Ban] ✅ Initialized with', settings.antiBan.preset || 'custom', 'preset');
+    antiBanManager = new AntiBanManager(settings.antiBan, 'replies');
+    console.log('[Anti-Ban] ✅ Replies initialized with', settings.antiBan.preset || 'custom', 'preset');
+
+    // Outbound budget: what we initiate. Same storage as the reply budget -
+    // settings.json, editable from the admin panel - so both are changed in
+    // one place and survive a restart without touching the compose file.
+    const { getOutboundSettings } = require('./src/utils/settings');
+    antiBanOutbound = new AntiBanManager(getOutboundSettings(), 'outbound');
+    console.log('[Anti-Ban] ✅ Outbound initialized:', antiBanOutbound.getLimits());
 
     // Initialize Google Drive (optional)
     await initGoogleDrive();

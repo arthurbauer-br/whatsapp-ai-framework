@@ -85,8 +85,13 @@ lembrete de renovação, alerta.
 ```
 POST /api/send
 X-N8N-Token: <token>
-{ "to": "5551999999999", "message": "..." }
+{ "to": "5551999999999", "message": "...", "kind": "outbound" }
 ```
+
+O `kind` escolhe em qual orçamento de limite o envio é contado: `"reply"` para
+responder quem escreveu, qualquer outra coisa (ou omitido) para conversa que
+você inicia. O padrão é o orçamento mais rígido de propósito — esquecer o campo
+custa o limite apertado, nunca o frouxo.
 
 Três decisões que vale conhecer:
 

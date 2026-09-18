@@ -687,6 +687,59 @@
 
             <button class="btn-save-settings" id="btn-save-settings">Save Settings</button>
 
+            <!-- Outbound budget: conversations WE start -->
+            <div style="margin-top:28px;padding-top:20px;border-top:1px solid rgba(255,255,255,0.12);">
+                <div class="card-header" style="margin-bottom:6px;">
+                    <span class="card-title">Outbound Limits</span>
+                </div>
+                <p style="margin:0 0 14px;font-size:13px;opacity:0.7;line-height:1.5;">
+                    Separate budget for messages <strong>you start</strong> &mdash; scheduled
+                    notices sent through <code>POST /api/send</code>. The limits above apply to
+                    replies, where the contact wrote first. Starting a conversation nobody asked
+                    for is the riskier one, so keep these tighter.
+                </p>
+
+                <div class="preset-buttons" id="out-preset-buttons">
+                    <button class="preset-btn" data-preset="new">
+                        <div class="preset-btn-title">New Account</div>
+                        <div class="preset-btn-desc">30/hour</div>
+                    </button>
+                    <button class="preset-btn" data-preset="balanced">
+                        <div class="preset-btn-title">Balanced</div>
+                        <div class="preset-btn-desc">50/hour</div>
+                    </button>
+                    <button class="preset-btn" data-preset="higher">
+                        <div class="preset-btn-title">Higher</div>
+                        <div class="preset-btn-desc">80/hour</div>
+                    </button>
+                    <button class="preset-btn active" data-preset="custom">
+                        <div class="preset-btn-title">Custom</div>
+                        <div class="preset-btn-desc">Configure</div>
+                    </button>
+                </div>
+
+                <div class="custom-inputs show" id="out-custom-inputs">
+                    <div class="input-group">
+                        <label>Messages / Hour</label>
+                        <input type="number" id="out-input-msgs-hour" min="1" max="200" value="15">
+                    </div>
+                    <div class="input-group">
+                        <label>Messages / Day</label>
+                        <input type="number" id="out-input-msgs-day" min="1" max="1000" value="50">
+                    </div>
+                    <div class="input-group">
+                        <label>Unique Chats / Hour</label>
+                        <input type="number" id="out-input-chats-hour" min="1" max="100" value="15">
+                    </div>
+                    <div class="input-group">
+                        <label>Unique Chats / Day</label>
+                        <input type="number" id="out-input-chats-day" min="1" max="500" value="50">
+                    </div>
+                </div>
+
+                <button class="btn-save-settings" id="btn-save-outbound">Save Outbound Limits</button>
+            </div>
+
             <div class="usage-section">
                 <div class="usage-header">
                     <span class="card-title">Current Usage</span>
@@ -1204,6 +1257,90 @@
                     alert('Error saving settings: ' + error.message);
                 });
             });
+
+            // ============================================================
+            // Outbound limits - the budget for conversations WE start.
+            // Kept self-contained so it can't disturb the reply settings above.
+            // ============================================================
+            (function setupOutboundLimits() {
+                var outButtons = document.querySelectorAll('#out-preset-buttons .preset-btn');
+                var outInputs = document.getElementById('out-custom-inputs');
+                var outSave = document.getElementById('btn-save-outbound');
+                var outFields = {
+                    messagesPerHour: document.getElementById('out-input-msgs-hour'),
+                    messagesPerDay: document.getElementById('out-input-msgs-day'),
+                    uniqueChatsPerHour: document.getElementById('out-input-chats-hour'),
+                    uniqueChatsPerDay: document.getElementById('out-input-chats-day')
+                };
+                if (!outSave) return;
+
+                var outPreset = 'custom';
+
+                function paint(preset) {
+                    outPreset = preset;
+                    outButtons.forEach(function(btn) {
+                        btn.classList.toggle('active', btn.getAttribute('data-preset') === preset);
+                    });
+                    outInputs.classList.toggle('show', preset === 'custom');
+                }
+
+                function load() {
+                    fetch('/api/anti-ban/outbound/settings')
+                        .then(function(r) { return r.json(); })
+                        .then(function(data) {
+                            var s = data.current || {};
+                            paint(s.preset || 'custom');
+                            Object.keys(outFields).forEach(function(k) {
+                                if (s[k]) outFields[k].value = s[k];
+                            });
+                        })
+                        .catch(function() { /* panel still works without it */ });
+                }
+
+                outButtons.forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        paint(btn.getAttribute('data-preset'));
+                    });
+                });
+
+                outSave.addEventListener('click', function() {
+                    outSave.disabled = true;
+                    outSave.textContent = 'Saving...';
+
+                    var payload = { preset: outPreset };
+                    if (outPreset === 'custom') {
+                        Object.keys(outFields).forEach(function(k) {
+                            payload[k] = parseInt(outFields[k].value) || undefined;
+                        });
+                    }
+
+                    fetch('/api/anti-ban/outbound/settings', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    })
+                    .then(function(r) { return r.json(); })
+                    .then(function(result) {
+                        outSave.disabled = false;
+                        if (result.error) {
+                            outSave.textContent = 'Save Outbound Limits';
+                            alert('Error: ' + result.error);
+                            return;
+                        }
+                        outSave.textContent = 'Saved!';
+                        setTimeout(function() {
+                            outSave.textContent = 'Save Outbound Limits';
+                        }, 1500);
+                    })
+                    .catch(function(error) {
+                        outSave.disabled = false;
+                        outSave.textContent = 'Save Outbound Limits';
+                        alert('Error saving outbound limits: ' + error.message);
+                    });
+                });
+
+                load();
+            })();
 
             // Save webhook button
             elements.btnSaveWebhook.addEventListener('click', function() {

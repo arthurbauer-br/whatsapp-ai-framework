@@ -14,12 +14,22 @@ const SETTINGS_FILE = path.join(__dirname, '../../settings.json');
 
 // Default settings
 const DEFAULT_SETTINGS = {
+    // Budget for REPLYING to people who wrote in first.
     antiBan: {
         preset: 'balanced',
         messagesPerHour: 50,
         messagesPerDay: 300,
         uniqueChatsPerHour: 25,
         uniqueChatsPerDay: 100
+    },
+    // Budget for conversations WE start (POST /api/send without kind:"reply").
+    // Deliberately tighter: an unsolicited message is the riskier kind.
+    antiBanOutbound: {
+        preset: 'custom',
+        messagesPerHour: 15,
+        messagesPerDay: 50,
+        uniqueChatsPerHour: 15,
+        uniqueChatsPerDay: 50
     },
     n8nWebhookUrl: ''
 };
@@ -101,41 +111,67 @@ async function updateSettings(section, updates) {
 }
 
 /**
- * Update anti-ban settings specifically
- * @param {Object} updates - { preset?, messagesPerHour?, messagesPerDay?, etc. }
+ * Apply an update to one of the anti-ban budgets.
+ * Shared by both budgets so they can never drift apart in behaviour.
+ * @param {string} section - 'antiBan' (replies) or 'antiBanOutbound'
+ * @param {Object} updates - { preset?, messagesPerHour?, messagesPerDay?, ... }
  */
-async function updateAntiBanSettings(updates) {
+async function updateBudget(section, updates) {
     const { PRESETS } = require('./anti-ban');
+    const atual = currentSettings[section] || { ...DEFAULT_SETTINGS[section] };
 
     // If a preset is selected, apply preset values
     if (updates.preset && PRESETS[updates.preset]) {
-        currentSettings.antiBan = {
+        currentSettings[section] = {
             preset: updates.preset,
             ...PRESETS[updates.preset]
         };
     } else if (updates.preset === 'custom') {
         // Custom settings
-        currentSettings.antiBan = {
+        currentSettings[section] = {
             preset: 'custom',
-            messagesPerHour: updates.messagesPerHour || currentSettings.antiBan.messagesPerHour,
-            messagesPerDay: updates.messagesPerDay || currentSettings.antiBan.messagesPerDay,
-            uniqueChatsPerHour: updates.uniqueChatsPerHour || currentSettings.antiBan.uniqueChatsPerHour,
-            uniqueChatsPerDay: updates.uniqueChatsPerDay || currentSettings.antiBan.uniqueChatsPerDay
+            messagesPerHour: updates.messagesPerHour || atual.messagesPerHour,
+            messagesPerDay: updates.messagesPerDay || atual.messagesPerDay,
+            uniqueChatsPerHour: updates.uniqueChatsPerHour || atual.uniqueChatsPerHour,
+            uniqueChatsPerDay: updates.uniqueChatsPerDay || atual.uniqueChatsPerDay
         };
     } else {
         // Partial update
-        currentSettings.antiBan = { ...currentSettings.antiBan, ...updates };
+        currentSettings[section] = { ...atual, ...updates };
     }
 
     await saveSettings();
-    return currentSettings.antiBan;
+    return currentSettings[section];
 }
 
 /**
- * Get anti-ban settings
+ * Update the REPLY budget (answers to people who wrote in).
+ * @param {Object} updates - { preset?, messagesPerHour?, messagesPerDay?, etc. }
+ */
+async function updateAntiBanSettings(updates) {
+    return updateBudget('antiBan', updates);
+}
+
+/**
+ * Update the OUTBOUND budget (conversations we start).
+ * @param {Object} updates - same shape as updateAntiBanSettings
+ */
+async function updateOutboundSettings(updates) {
+    return updateBudget('antiBanOutbound', updates);
+}
+
+/**
+ * Get anti-ban settings (reply budget)
  */
 function getAntiBanSettings() {
     return { ...currentSettings.antiBan };
+}
+
+/**
+ * Get the outbound budget settings
+ */
+function getOutboundSettings() {
+    return { ...(currentSettings.antiBanOutbound || DEFAULT_SETTINGS.antiBanOutbound) };
 }
 
 /**
@@ -171,5 +207,7 @@ module.exports = {
     updateSettings,
     updateAntiBanSettings,
     getAntiBanSettings,
+    updateOutboundSettings,
+    getOutboundSettings,
     DEFAULT_SETTINGS
 };

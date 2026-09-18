@@ -8,8 +8,9 @@
  * - Time-of-day adjustments
  */
 
-// Default rate limits (can be updated dynamically)
-let RATE_LIMITS = {
+// Starting point for every manager. Each instance keeps its OWN copy in
+// `this.limits`, so the outbound-blast budget and the reply budget can differ.
+const DEFAULT_LIMITS = {
     messagesPerHour: 50,
     messagesPerDay: 300,
     uniqueChatsPerHour: 25,
@@ -48,12 +49,16 @@ const PRESETS = {
 };
 
 class AntiBanManager {
-    constructor(customLimits = null) {
+    constructor(customLimits = null, name = 'default') {
         this.messageCount = { hour: 0, day: 0 };
         this.chatCount = { hour: new Set(), day: new Set() };
         this.lastMessageTime = 0;
         this.lastHourReset = Date.now();
         this.lastDayReset = Date.now();
+
+        // Own copy of the limits - never shared with other instances.
+        this.limits = { ...DEFAULT_LIMITS };
+        this.name = name;
 
         // Apply custom limits if provided
         if (customLimits) {
@@ -67,23 +72,23 @@ class AntiBanManager {
      */
     updateLimits(newLimits) {
         if (newLimits.preset && PRESETS[newLimits.preset]) {
-            RATE_LIMITS = { ...PRESETS[newLimits.preset] };
+            this.limits = { ...PRESETS[newLimits.preset] };
         } else {
-            RATE_LIMITS = {
-                messagesPerHour: newLimits.messagesPerHour || RATE_LIMITS.messagesPerHour,
-                messagesPerDay: newLimits.messagesPerDay || RATE_LIMITS.messagesPerDay,
-                uniqueChatsPerHour: newLimits.uniqueChatsPerHour || RATE_LIMITS.uniqueChatsPerHour,
-                uniqueChatsPerDay: newLimits.uniqueChatsPerDay || RATE_LIMITS.uniqueChatsPerDay
+            this.limits = {
+                messagesPerHour: newLimits.messagesPerHour || this.limits.messagesPerHour,
+                messagesPerDay: newLimits.messagesPerDay || this.limits.messagesPerDay,
+                uniqueChatsPerHour: newLimits.uniqueChatsPerHour || this.limits.uniqueChatsPerHour,
+                uniqueChatsPerDay: newLimits.uniqueChatsPerDay || this.limits.uniqueChatsPerDay
             };
         }
-        console.log('[Anti-Ban] Limits updated:', RATE_LIMITS);
+        console.log(`[Anti-Ban:${this.name}] Limits updated:`, this.limits);
     }
 
     /**
      * Get current rate limits
      */
     getLimits() {
-        return { ...RATE_LIMITS };
+        return { ...this.limits };
     }
 
     /**
@@ -117,7 +122,7 @@ class AntiBanManager {
     canSendMessage(chatId) {
         this.checkAndResetCounters();
 
-        if (this.messageCount.hour >= RATE_LIMITS.messagesPerHour) {
+        if (this.messageCount.hour >= this.limits.messagesPerHour) {
             return {
                 allowed: false,
                 reason: 'Hourly message limit reached',
@@ -125,7 +130,7 @@ class AntiBanManager {
             };
         }
 
-        if (this.messageCount.day >= RATE_LIMITS.messagesPerDay) {
+        if (this.messageCount.day >= this.limits.messagesPerDay) {
             return {
                 allowed: false,
                 reason: 'Daily message limit reached',
@@ -134,7 +139,7 @@ class AntiBanManager {
         }
 
         if (!this.chatCount.hour.has(chatId) &&
-            this.chatCount.hour.size >= RATE_LIMITS.uniqueChatsPerHour) {
+            this.chatCount.hour.size >= this.limits.uniqueChatsPerHour) {
             return {
                 allowed: false,
                 reason: 'Hourly unique chat limit reached',
@@ -143,7 +148,7 @@ class AntiBanManager {
         }
 
         if (!this.chatCount.day.has(chatId) &&
-            this.chatCount.day.size >= RATE_LIMITS.uniqueChatsPerDay) {
+            this.chatCount.day.size >= this.limits.uniqueChatsPerDay) {
             return {
                 allowed: false,
                 reason: 'Daily unique chat limit reached',
@@ -233,7 +238,7 @@ class AntiBanManager {
             messagesThisDay: this.messageCount.day,
             uniqueChatsThisHour: this.chatCount.hour.size,
             uniqueChatsThisDay: this.chatCount.day.size,
-            limits: { ...RATE_LIMITS },
+            limits: { ...this.limits },
             nextHourlyReset: new Date(this.lastHourReset + 3600000).toISOString(),
             nextDailyReset: new Date(this.lastDayReset + 86400000).toISOString()
         };
@@ -244,10 +249,10 @@ class AntiBanManager {
      */
     getHealth() {
         const stats = this.getStats();
-        const hourlyUsage = (stats.messagesThisHour / RATE_LIMITS.messagesPerHour) * 100;
-        const dailyUsage = (stats.messagesThisDay / RATE_LIMITS.messagesPerDay) * 100;
-        const hourlyChatsUsage = (stats.uniqueChatsThisHour / RATE_LIMITS.uniqueChatsPerHour) * 100;
-        const dailyChatsUsage = (stats.uniqueChatsThisDay / RATE_LIMITS.uniqueChatsPerDay) * 100;
+        const hourlyUsage = (stats.messagesThisHour / this.limits.messagesPerHour) * 100;
+        const dailyUsage = (stats.messagesThisDay / this.limits.messagesPerDay) * 100;
+        const hourlyChatsUsage = (stats.uniqueChatsThisHour / this.limits.uniqueChatsPerHour) * 100;
+        const dailyChatsUsage = (stats.uniqueChatsThisDay / this.limits.uniqueChatsPerDay) * 100;
 
         const warnings = [];
         if (hourlyUsage > 80) warnings.push('Approaching hourly message limit');
@@ -277,6 +282,41 @@ class AntiBanManager {
  */
 function delay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// ========================================
+// GLOBAL SEND QUEUE
+// ========================================
+// A person cannot type in two chats at once. Without this, two concurrent
+// sends (two contacts writing at the same time, or a scheduled notice
+// overlapping an inbound reply) would each fire their own "composing"
+// presence, and the account would show as typing in two chats at the same
+// instant - something no human does, and something WhatsApp can see.
+//
+// Every send is therefore serialized through one promise chain: type, wait,
+// send, release. Whoever arrives mid-send waits their turn before their own
+// chat lights up.
+
+let sendChain = Promise.resolve();
+let queueDepth = 0;
+
+/**
+ * Run `task` only after every previously queued send has finished.
+ * Rejections are swallowed by the chain so one failure can't stall the queue.
+ * @param {Function} task - async function to run exclusively
+ * @returns {Promise} whatever `task` resolves to
+ */
+function enqueueSend(task) {
+    queueDepth++;
+    const result = sendChain.then(task, task);
+    sendChain = result.then(() => {}, () => {});
+    result.then(() => { queueDepth--; }, () => { queueDepth--; });
+    return result;
+}
+
+/** How many sends are queued or in flight right now. */
+function getQueueDepth() {
+    return queueDepth;
 }
 
 /**
@@ -328,37 +368,42 @@ async function simulateTyping(socket, jid, messageLength) {
  * @param {AntiBanManager} antiBanManager - Anti-ban manager instance
  */
 async function safeSendMessage(socket, jid, message, incomingText, antiBanManager) {
-    // Check rate limits
-    const canSend = antiBanManager.canSendMessage(jid);
-    if (!canSend.allowed) {
-        console.log(`[Anti-Ban] BLOCKED: ${canSend.reason}. Wait ${Math.ceil(canSend.waitTime / 1000)}s`);
-        return { sent: false, reason: canSend.reason, waitTime: canSend.waitTime };
-    }
+    // The whole type-wait-send cycle runs exclusively: never two chats typing
+    // at the same time. See GLOBAL SEND QUEUE above.
+    return enqueueSend(async () => {
+        // Rate limits are checked AFTER getting our turn, not before queueing -
+        // the counters may well have moved while we waited.
+        const canSend = antiBanManager.canSendMessage(jid);
+        if (!canSend.allowed) {
+            console.log(`[Anti-Ban] BLOCKED: ${canSend.reason}. Wait ${Math.ceil(canSend.waitTime / 1000)}s`);
+            return { sent: false, reason: canSend.reason, waitTime: canSend.waitTime };
+        }
 
-    // Get message text for delay calculation
-    const messageText = typeof message === 'string' ? message : (message.text || '');
+        // Get message text for delay calculation
+        const messageText = typeof message === 'string' ? message : (message.text || '');
 
-    // Calculate human-like delay
-    const delayMs = antiBanManager.calculateDelay(incomingText, messageText);
-    console.log(`[Anti-Ban] Waiting ${delayMs}ms before reply...`);
+        // Calculate human-like delay
+        const delayMs = antiBanManager.calculateDelay(incomingText, messageText);
+        console.log(`[Anti-Ban] Waiting ${delayMs}ms before reply...`);
 
-    // Simulate typing for the duration
-    await simulateTyping(socket, jid, messageText.length);
+        // Simulate typing for the duration
+        await simulateTyping(socket, jid, messageText.length);
 
-    // Additional delay if needed (typing simulation might be shorter)
-    const remainingDelay = delayMs - (messageText.length * 50);
-    if (remainingDelay > 0) {
-        await delay(remainingDelay);
-    }
+        // Additional delay if needed (typing simulation might be shorter)
+        const remainingDelay = delayMs - (messageText.length * 50);
+        if (remainingDelay > 0) {
+            await delay(remainingDelay);
+        }
 
-    // Send the message
-    const messageObj = typeof message === 'string' ? { text: message } : message;
-    await socket.sendMessage(jid, messageObj);
+        // Send the message
+        const messageObj = typeof message === 'string' ? { text: message } : message;
+        await socket.sendMessage(jid, messageObj);
 
-    // Record the message for rate limiting
-    antiBanManager.recordMessage(jid);
+        // Record the message for rate limiting
+        antiBanManager.recordMessage(jid);
 
-    return { sent: true, delay: delayMs };
+        return { sent: true, delay: delayMs };
+    });
 }
 
 module.exports = {
@@ -366,6 +411,9 @@ module.exports = {
     delay,
     simulateTyping,
     safeSendMessage,
+    enqueueSend,
+    getQueueDepth,
     PRESETS,
+    DEFAULT_LIMITS,
     DELAY_CONFIG
 };
