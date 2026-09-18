@@ -22,7 +22,7 @@ const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = requi
 const { HttpsProxyAgent } = require('https-proxy-agent');
 
 // Anti-Ban & Settings Modules
-const { AntiBanManager, safeSendMessage, simulateTyping, delay, getQueueDepth } = require('./src/utils/anti-ban');
+const { AntiBanManager, safeSendMessage, simulateTyping, delay, getQueueDepth, sharedBudget } = require('./src/utils/anti-ban');
 const { loadSettings, getAntiBanSettings, updateAntiBanSettings } = require('./src/utils/settings');
 
 // ========================================
@@ -1091,6 +1091,7 @@ app.get('/api/anti-ban/stats', (req, res) => {
     res.json({
         ...antiBanManager.getStats(),
         outbound: antiBanOutbound ? antiBanOutbound.getStats() : null,
+        account: sharedBudget.getStats(),
         queueDepth: getQueueDepth()
     });
 });
@@ -1103,6 +1104,7 @@ app.get('/api/anti-ban/health', (req, res) => {
     res.json({
         ...antiBanManager.getHealth(),
         outbound: antiBanOutbound ? antiBanOutbound.getHealth() : null,
+        account: sharedBudget.getStats(),
         queueDepth: getQueueDepth()
     });
 });
@@ -1148,6 +1150,7 @@ app.post('/api/anti-ban/settings', async (req, res) => {
         if (antiBanManager) {
             antiBanManager.updateLimits(newSettings);
         }
+        sharedBudget.recalculate([antiBanManager, antiBanOutbound]);
 
         // Broadcast update to all connected clients
         broadcastAntiBanStats();
@@ -1201,6 +1204,7 @@ app.post('/api/anti-ban/outbound/settings', async (req, res) => {
         if (antiBanOutbound) {
             antiBanOutbound.updateLimits(newSettings);
         }
+        sharedBudget.recalculate([antiBanManager, antiBanOutbound]);
 
         broadcastAntiBanStats();
         broadcast({ type: 'antiBanOutboundSettings', data: newSettings });
@@ -1378,6 +1382,11 @@ Initializing...
     const { getOutboundSettings } = require('./src/utils/settings');
     antiBanOutbound = new AntiBanManager(getOutboundSettings(), 'outbound');
     console.log('[Anti-Ban] ✅ Outbound initialized:', antiBanOutbound.getLimits());
+
+    // Account-wide ceiling. Without it the two budgets would ADD UP: 50/h of
+    // replies plus 30/h of outbound would let 80 messages out in an hour, and
+    // WhatsApp counts the number, not our categories.
+    sharedBudget.recalculate([antiBanManager, antiBanOutbound]);
 
     // Initialize Google Drive (optional)
     await initGoogleDrive();

@@ -48,6 +48,97 @@ const PRESETS = {
     }
 };
 
+/**
+ * The account-wide ceiling.
+ *
+ * Each budget (replies, outbound) counts on its own, but WhatsApp does not see
+ * categories - it sees one number sending. Two independent budgets of 50/h and
+ * 30/h would let 80 messages out in an hour with both counters reporting
+ * "within limits", which is exactly the kind of volume the budgets exist to
+ * prevent.
+ *
+ * So every send also passes through this shared counter. Its ceiling is the
+ * HIGHEST of the configured budgets, never their sum. With replies at 50/h and
+ * outbound at 30/h the account may send 50/h total: if replies already used 40,
+ * only 10 are left for outbound that hour, no matter what the outbound budget
+ * alone would allow.
+ */
+class SharedBudget {
+    constructor() {
+        this.messageCount = { hour: 0, day: 0 };
+        this.chatCount = { hour: new Set(), day: new Set() };
+        this.lastHourReset = Date.now();
+        this.lastDayReset = Date.now();
+        this.limits = { ...DEFAULT_LIMITS };
+    }
+
+    /** Ceiling = the highest of the budgets, so it never becomes their sum. */
+    recalculate(budgets) {
+        const campos = ['messagesPerHour', 'messagesPerDay', 'uniqueChatsPerHour', 'uniqueChatsPerDay'];
+        const ativos = budgets.filter(Boolean);
+        if (!ativos.length) return;
+        campos.forEach((campo) => {
+            this.limits[campo] = Math.max(...ativos.map((b) => b.getLimits()[campo]));
+        });
+        console.log('[Anti-Ban:global] Ceiling:', this.limits);
+    }
+
+    checkAndResetCounters() {
+        const now = Date.now();
+        if (now - this.lastHourReset > 3600000) {
+            this.messageCount.hour = 0;
+            this.chatCount.hour.clear();
+            this.lastHourReset = now;
+        }
+        if (now - this.lastDayReset > 86400000) {
+            this.messageCount.day = 0;
+            this.chatCount.day.clear();
+            this.lastDayReset = now;
+        }
+    }
+
+    getHourlyResetTime() { return Math.max(0, 3600000 - (Date.now() - this.lastHourReset)); }
+    getDailyResetTime() { return Math.max(0, 86400000 - (Date.now() - this.lastDayReset)); }
+
+    canSend(chatId) {
+        this.checkAndResetCounters();
+        if (this.messageCount.hour >= this.limits.messagesPerHour) {
+            return { allowed: false, reason: 'Account hourly message limit reached', waitTime: this.getHourlyResetTime() };
+        }
+        if (this.messageCount.day >= this.limits.messagesPerDay) {
+            return { allowed: false, reason: 'Account daily message limit reached', waitTime: this.getDailyResetTime() };
+        }
+        if (!this.chatCount.hour.has(chatId) && this.chatCount.hour.size >= this.limits.uniqueChatsPerHour) {
+            return { allowed: false, reason: 'Account hourly unique chat limit reached', waitTime: this.getHourlyResetTime() };
+        }
+        if (!this.chatCount.day.has(chatId) && this.chatCount.day.size >= this.limits.uniqueChatsPerDay) {
+            return { allowed: false, reason: 'Account daily unique chat limit reached', waitTime: this.getDailyResetTime() };
+        }
+        return { allowed: true };
+    }
+
+    record(chatId) {
+        this.messageCount.hour++;
+        this.messageCount.day++;
+        this.chatCount.hour.add(chatId);
+        this.chatCount.day.add(chatId);
+    }
+
+    getStats() {
+        this.checkAndResetCounters();
+        return {
+            messagesThisHour: this.messageCount.hour,
+            messagesThisDay: this.messageCount.day,
+            uniqueChatsThisHour: this.chatCount.hour.size,
+            uniqueChatsThisDay: this.chatCount.day.size,
+            limits: { ...this.limits }
+        };
+    }
+}
+
+// One ceiling for the whole account.
+const sharedBudget = new SharedBudget();
+
 class AntiBanManager {
     constructor(customLimits = null, name = 'default') {
         this.messageCount = { hour: 0, day: 0 };
@@ -156,7 +247,10 @@ class AntiBanManager {
             };
         }
 
-        return { allowed: true };
+        // Fits this budget. It must also fit the account-wide ceiling, which
+        // every budget shares - otherwise two budgets would add up instead of
+        // capping each other.
+        return sharedBudget.canSend(chatId);
     }
 
     /**
@@ -212,6 +306,9 @@ class AntiBanManager {
         this.chatCount.hour.add(chatId);
         this.chatCount.day.add(chatId);
         this.lastMessageTime = Date.now();
+
+        // Same send, counted once on the account ceiling as well.
+        sharedBudget.record(chatId);
     }
 
     /**
@@ -408,6 +505,7 @@ async function safeSendMessage(socket, jid, message, incomingText, antiBanManage
 
 module.exports = {
     AntiBanManager,
+    sharedBudget,
     delay,
     simulateTyping,
     safeSendMessage,
