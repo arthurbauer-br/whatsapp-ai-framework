@@ -690,7 +690,7 @@
                 <span class="card-title" data-i18n="card.antiban">Anti-Ban Settings</span>
             </div>
 
-            <div class="preset-buttons">
+            <div class="preset-buttons" id="reply-preset-buttons">
                 <button class="preset-btn" data-preset="new">
                     <div class="preset-btn-title" data-i18n="preset.new">New Account</div>
                     <div class="preset-btn-desc">30/hour</div>
@@ -1102,7 +1102,10 @@
 
             // Anti-ban state
             let currentPreset = 'balanced';
-            const presetButtons = document.querySelectorAll('.preset-btn');
+            // Scoped to the reply card on purpose. A bare '.preset-btn' also
+            // matches the outbound card's buttons, which tied the two cards
+            // together: picking a preset in one repainted and saved the other.
+            const presetButtons = document.querySelectorAll('#reply-preset-buttons .preset-btn');
 
             function connectWebSocket() {
                 const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
