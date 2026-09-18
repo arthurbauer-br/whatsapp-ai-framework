@@ -51,6 +51,43 @@
             letter-spacing: -0.5px;
         }
 
+        /* ---- language switch ---- */
+        .header-right {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .lang-switch {
+            display: inline-flex;
+            border: 1px solid var(--border-color);
+            border-radius: 100px;
+            overflow: hidden;
+        }
+
+        .lang-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            padding: 6px 14px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .lang-btn:hover {
+            color: var(--text-primary);
+        }
+
+        .lang-btn.active {
+            background: var(--accent-blue);
+            color: #fff;
+        }
+
         .status-badge {
             display: inline-flex;
             align-items: center;
@@ -574,21 +611,27 @@
 <body>
     <div class="container">
         <header>
-            <h1>WhatsApp AI Bot</h1>
-            <div id="status-badge" class="status-badge status-disconnected">
-                Disconnected
+            <h1 data-i18n="app.title">WhatsApp AI Bot</h1>
+            <div class="header-right">
+                <div class="lang-switch" id="lang-switch">
+                    <button type="button" class="lang-btn" data-lang="en">EN</button>
+                    <button type="button" class="lang-btn" data-lang="pt">PT</button>
+                </div>
+                <div id="status-badge" class="status-badge status-disconnected">
+                    Disconnected
+                </div>
             </div>
         </header>
 
         <div class="grid">
             <div class="card">
                 <div class="card-header">
-                    <span class="card-title">QR Code</span>
+                    <span class="card-title" data-i18n="card.qr">QR Code</span>
                 </div>
                 <div class="qr-container" id="qr-container">
                     <div class="qr-placeholder" id="qr-placeholder">
                         <div class="qr-placeholder-icon" id="qr-icon"></div>
-                        <p id="qr-text">Click "Connect" to generate QR code</p>
+                        <p id="qr-text" data-i18n="qr.placeholder">Click "Connect" to generate QR code</p>
                     </div>
                     <img id="qr-code" class="qr-code" style="display: none;" alt="QR Code" />
                 </div>
@@ -596,30 +639,30 @@
 
             <div class="card">
                 <div class="card-header">
-                    <span class="card-title">Controls</span>
+                    <span class="card-title" data-i18n="card.controls">Controls</span>
                 </div>
 
                 <div class="controls">
-                    <button id="btn-connect" class="btn btn-connect">Connect</button>
-                    <button id="btn-disconnect" class="btn btn-disconnect" disabled>Disconnect</button>
-                    <button id="btn-clear" class="btn btn-clear">Clear Auth</button>
+                    <button id="btn-connect" class="btn btn-connect" data-i18n="btn.connect">Connect</button>
+                    <button id="btn-disconnect" class="btn btn-disconnect" data-i18n="btn.disconnect" disabled>Disconnect</button>
+                    <button id="btn-clear" class="btn btn-clear" data-i18n="btn.clearAuth">Clear Auth</button>
                 </div>
 
                 <div class="card-header">
-                    <span class="card-title">Connection Info</span>
+                    <span class="card-title" data-i18n="card.connInfo">Connection Info</span>
                 </div>
 
                 <div class="info-grid">
                     <div class="info-item">
-                        <span class="info-label">Status</span>
+                        <span class="info-label" data-i18n="info.status">Status</span>
                         <span class="info-value" id="info-status">Disconnected</span>
                     </div>
                     <div class="info-item">
-                        <span class="info-label">Phone Number</span>
+                        <span class="info-label" data-i18n="info.phone">Phone Number</span>
                         <span class="info-value" id="info-phone">-</span>
                     </div>
                     <div class="info-item">
-                        <span class="info-label">Connected Since</span>
+                        <span class="info-label" data-i18n="info.since">Connected Since</span>
                         <span class="info-value" id="info-connected">-</span>
                     </div>
                 </div>
@@ -629,70 +672,70 @@
         <!-- AI Configuration Card -->
         <div class="card" style="margin-bottom: 20px;">
             <div class="card-header">
-                <span class="card-title">AI Configuration</span>
+                <span class="card-title" data-i18n="card.ai">AI Configuration</span>
             </div>
 
             <div class="input-group" style="margin-bottom: 16px;">
-                <label>n8n Webhook URL</label>
+                <label data-i18n="label.webhook">n8n Webhook URL</label>
                 <input type="text" id="input-webhook-url" placeholder="https://your-n8n.com/webhook/whatsapp" style="width: 100%;">
-                <p style="font-size: 0.7rem; color: var(--text-secondary); margin-top: 4px;">This is the URL where messages will be sent for AI processing.</p>
+                <p style="font-size: 0.7rem; color: var(--text-secondary); margin-top: 4px;" data-i18n="help.webhook">This is the URL where messages will be sent for AI processing.</p>
             </div>
 
-            <button class="btn-save-settings" id="btn-save-webhook">Save Webhook URL</button>
+            <button class="btn-save-settings" id="btn-save-webhook" data-i18n="btn.saveWebhook">Save Webhook URL</button>
         </div>
 
         <!-- Anti-Ban Settings Card -->
         <div class="card" style="margin-bottom: 20px;">
             <div class="card-header">
-                <span class="card-title">Anti-Ban Settings</span>
+                <span class="card-title" data-i18n="card.antiban">Anti-Ban Settings</span>
             </div>
 
             <div class="preset-buttons">
                 <button class="preset-btn" data-preset="new">
-                    <div class="preset-btn-title">New Account</div>
+                    <div class="preset-btn-title" data-i18n="preset.new">New Account</div>
                     <div class="preset-btn-desc">30/hour</div>
                 </button>
                 <button class="preset-btn active" data-preset="balanced">
-                    <div class="preset-btn-title">Balanced</div>
+                    <div class="preset-btn-title" data-i18n="preset.balanced">Balanced</div>
                     <div class="preset-btn-desc">50/hour</div>
                 </button>
                 <button class="preset-btn" data-preset="higher">
-                    <div class="preset-btn-title">Higher</div>
+                    <div class="preset-btn-title" data-i18n="preset.higher">Higher</div>
                     <div class="preset-btn-desc">80/hour</div>
                 </button>
                 <button class="preset-btn" data-preset="custom">
-                    <div class="preset-btn-title">Custom</div>
-                    <div class="preset-btn-desc">Configure</div>
+                    <div class="preset-btn-title" data-i18n="preset.custom">Custom</div>
+                    <div class="preset-btn-desc" data-i18n="preset.configure">Configure</div>
                 </button>
             </div>
 
             <div class="custom-inputs" id="custom-inputs">
                 <div class="input-group">
-                    <label>Messages / Hour</label>
+                    <label data-i18n="field.msgsHour">Messages / Hour</label>
                     <input type="number" id="input-msgs-hour" min="1" max="200" value="50">
                 </div>
                 <div class="input-group">
-                    <label>Messages / Day</label>
+                    <label data-i18n="field.msgsDay">Messages / Day</label>
                     <input type="number" id="input-msgs-day" min="1" max="1000" value="300">
                 </div>
                 <div class="input-group">
-                    <label>Unique Chats / Hour</label>
+                    <label data-i18n="field.chatsHour">Unique Chats / Hour</label>
                     <input type="number" id="input-chats-hour" min="1" max="100" value="25">
                 </div>
                 <div class="input-group">
-                    <label>Unique Chats / Day</label>
+                    <label data-i18n="field.chatsDay">Unique Chats / Day</label>
                     <input type="number" id="input-chats-day" min="1" max="500" value="100">
                 </div>
             </div>
 
-            <button class="btn-save-settings" id="btn-save-settings">Save Settings</button>
+            <button class="btn-save-settings" id="btn-save-settings" data-i18n="btn.saveSettings">Save Settings</button>
 
             <!-- Outbound budget: conversations WE start -->
             <div style="margin-top:28px;padding-top:20px;border-top:1px solid rgba(255,255,255,0.12);">
                 <div class="card-header" style="margin-bottom:6px;">
-                    <span class="card-title">Outbound Limits</span>
+                    <span class="card-title" data-i18n="card.outbound">Outbound Limits</span>
                 </div>
-                <p style="margin:0 0 14px;font-size:13px;opacity:0.7;line-height:1.5;">
+                <p style="margin:0 0 14px;font-size:13px;opacity:0.7;line-height:1.5;" data-i18n-html="help.outbound">
                     Separate budget for messages <strong>you start</strong> &mdash; scheduled
                     notices sent through <code>POST /api/send</code>. The limits above apply to
                     replies, where the contact wrote first. Starting a conversation nobody asked
@@ -701,55 +744,55 @@
 
                 <div class="preset-buttons" id="out-preset-buttons">
                     <button class="preset-btn" data-preset="new">
-                        <div class="preset-btn-title">New Account</div>
+                        <div class="preset-btn-title" data-i18n="preset.new">New Account</div>
                         <div class="preset-btn-desc">30/hour</div>
                     </button>
                     <button class="preset-btn" data-preset="balanced">
-                        <div class="preset-btn-title">Balanced</div>
+                        <div class="preset-btn-title" data-i18n="preset.balanced">Balanced</div>
                         <div class="preset-btn-desc">50/hour</div>
                     </button>
                     <button class="preset-btn" data-preset="higher">
-                        <div class="preset-btn-title">Higher</div>
+                        <div class="preset-btn-title" data-i18n="preset.higher">Higher</div>
                         <div class="preset-btn-desc">80/hour</div>
                     </button>
                     <button class="preset-btn active" data-preset="custom">
-                        <div class="preset-btn-title">Custom</div>
-                        <div class="preset-btn-desc">Configure</div>
+                        <div class="preset-btn-title" data-i18n="preset.custom">Custom</div>
+                        <div class="preset-btn-desc" data-i18n="preset.configure">Configure</div>
                     </button>
                 </div>
 
                 <div class="custom-inputs show" id="out-custom-inputs">
                     <div class="input-group">
-                        <label>Messages / Hour</label>
+                        <label data-i18n="field.msgsHour">Messages / Hour</label>
                         <input type="number" id="out-input-msgs-hour" min="1" max="200" value="15">
                     </div>
                     <div class="input-group">
-                        <label>Messages / Day</label>
+                        <label data-i18n="field.msgsDay">Messages / Day</label>
                         <input type="number" id="out-input-msgs-day" min="1" max="1000" value="50">
                     </div>
                     <div class="input-group">
-                        <label>Unique Chats / Hour</label>
+                        <label data-i18n="field.chatsHour">Unique Chats / Hour</label>
                         <input type="number" id="out-input-chats-hour" min="1" max="100" value="15">
                     </div>
                     <div class="input-group">
-                        <label>Unique Chats / Day</label>
+                        <label data-i18n="field.chatsDay">Unique Chats / Day</label>
                         <input type="number" id="out-input-chats-day" min="1" max="500" value="50">
                     </div>
                 </div>
 
-                <button class="btn-save-settings" id="btn-save-outbound">Save Outbound Limits</button>
+                <button class="btn-save-settings" id="btn-save-outbound" data-i18n="btn.saveOutbound">Save Outbound Limits</button>
             </div>
 
             <div class="usage-section">
                 <div class="usage-header">
-                    <span class="card-title">Current Usage</span>
-                    <span class="usage-status healthy" id="usage-status">Healthy</span>
+                    <span class="card-title" data-i18n="usage.title">Current Usage</span>
+                    <span class="usage-status healthy" id="usage-status">&mdash;</span>
                 </div>
 
                 <div class="usage-bars">
                     <div class="usage-bar-item">
                         <div class="usage-bar-label">
-                            <span class="usage-bar-label-text">Messages This Hour</span>
+                            <span class="usage-bar-label-text" data-i18n="usage.msgsHour">Messages This Hour</span>
                             <span class="usage-bar-label-value" id="usage-msgs-hour">0/50</span>
                         </div>
                         <div class="usage-bar">
@@ -759,7 +802,7 @@
 
                     <div class="usage-bar-item">
                         <div class="usage-bar-label">
-                            <span class="usage-bar-label-text">Messages Today</span>
+                            <span class="usage-bar-label-text" data-i18n="usage.msgsDay">Messages Today</span>
                             <span class="usage-bar-label-value" id="usage-msgs-day">0/300</span>
                         </div>
                         <div class="usage-bar">
@@ -769,7 +812,7 @@
 
                     <div class="usage-bar-item">
                         <div class="usage-bar-label">
-                            <span class="usage-bar-label-text">Unique Chats This Hour</span>
+                            <span class="usage-bar-label-text" data-i18n="usage.chatsHour">Unique Chats This Hour</span>
                             <span class="usage-bar-label-value" id="usage-chats-hour">0/25</span>
                         </div>
                         <div class="usage-bar">
@@ -779,7 +822,7 @@
 
                     <div class="usage-bar-item">
                         <div class="usage-bar-label">
-                            <span class="usage-bar-label-text">Unique Chats Today</span>
+                            <span class="usage-bar-label-text" data-i18n="usage.chatsDay">Unique Chats Today</span>
                             <span class="usage-bar-label-value" id="usage-chats-day">0/100</span>
                         </div>
                         <div class="usage-bar">
@@ -797,29 +840,219 @@
         <div class="card">
             <div class="card-header log-header">
                 <div>
-                    <span class="card-title">Activity Log</span>
-                    <span class="card-title" style="margin-left: 12px;" id="log-count">0 entries</span>
+                    <span class="card-title" data-i18n="card.log">Activity Log</span>
+                    <span class="card-title" style="margin-left: 12px;" id="log-count">&mdash;</span>
                 </div>
                 <div class="log-actions">
-                    <button id="btn-export-json" class="btn btn-small btn-export">Export JSON</button>
-                    <button id="btn-export-csv" class="btn btn-small btn-export">Export CSV</button>
-                    <button id="btn-backup" class="btn btn-small btn-backup">Backup & Clear</button>
+                    <button id="btn-export-json" class="btn btn-small btn-export" data-i18n="btn.exportJson">Export JSON</button>
+                    <button id="btn-export-csv" class="btn btn-small btn-export" data-i18n="btn.exportCsv">Export CSV</button>
+                    <button id="btn-backup" class="btn btn-small btn-backup" data-i18n="btn.backupClear">Backup &amp; Clear</button>
                 </div>
             </div>
             <div class="log-container" id="log-container">
-                <div class="log-empty" id="log-empty">No activity yet</div>
+                <div class="log-empty" id="log-empty" data-i18n="log.empty">No activity yet</div>
             </div>
         </div>
     </div>
 
     <div class="ws-indicator ws-disconnected" id="ws-indicator">
         <span class="ws-dot"></span>
-        <span id="ws-status">Connecting...</span>
+        <span id="ws-status" data-i18n="ws.connecting">Connecting...</span>
     </div>
 
     <script>
         (function() {
             'use strict';
+
+            // ============================================================
+            // i18n - English and Brazilian Portuguese
+            //
+            // Static text carries data-i18n (textContent) or data-i18n-html
+            // (when the string has markup). Anything the script injects goes
+            // through t(). Adding a language means adding one entry below.
+            // ============================================================
+            var I18N = {
+                en: {
+                    'app.title': 'WhatsApp AI Bot',
+                    'card.qr': 'QR Code',
+                    'qr.placeholder': 'Click "Connect" to generate QR code',
+                    'qr.connected': 'Connected to WhatsApp',
+                    'qr.generating': 'Generating QR code...',
+                    'card.controls': 'Controls',
+                    'btn.connect': 'Connect',
+                    'btn.disconnect': 'Disconnect',
+                    'btn.clearAuth': 'Clear Auth',
+                    'card.connInfo': 'Connection Info',
+                    'info.status': 'Status',
+                    'info.phone': 'Phone Number',
+                    'info.since': 'Connected Since',
+                    'card.ai': 'AI Configuration',
+                    'label.webhook': 'n8n Webhook URL',
+                    'help.webhook': 'This is the URL where messages will be sent for AI processing.',
+                    'btn.saveWebhook': 'Save Webhook URL',
+                    'card.antiban': 'Anti-Ban Settings',
+                    'card.outbound': 'Outbound Limits',
+                    'help.outbound': 'Separate budget for messages <strong>you start</strong> &mdash; scheduled notices sent through <code>POST /api/send</code>. The limits above apply to replies, where the contact wrote first. Starting a conversation nobody asked for is the riskier one, so keep these tighter.',
+                    'preset.new': 'New Account',
+                    'preset.balanced': 'Balanced',
+                    'preset.higher': 'Higher',
+                    'preset.custom': 'Custom',
+                    'preset.configure': 'Configure',
+                    'field.msgsHour': 'Messages / Hour',
+                    'field.msgsDay': 'Messages / Day',
+                    'field.chatsHour': 'Unique Chats / Hour',
+                    'field.chatsDay': 'Unique Chats / Day',
+                    'btn.saveSettings': 'Save Settings',
+                    'btn.saveOutbound': 'Save Outbound Limits',
+                    'usage.title': 'Current Usage',
+                    'usage.msgsHour': 'Messages This Hour',
+                    'usage.msgsDay': 'Messages Today',
+                    'usage.chatsHour': 'Unique Chats This Hour',
+                    'usage.chatsDay': 'Unique Chats Today',
+                    'card.log': 'Activity Log',
+                    'btn.exportJson': 'Export JSON',
+                    'btn.exportCsv': 'Export CSV',
+                    'btn.backupClear': 'Backup & Clear',
+                    'log.empty': 'No activity yet',
+                    'log.entries': '{n} entries',
+                    'ws.connecting': 'Connecting...',
+                    'ws.live': 'Live',
+                    'ws.reconnecting': 'Reconnecting...',
+                    'status.disconnected': 'Disconnected',
+                    'status.connecting': 'Connecting',
+                    'status.connected': 'Connected',
+                    'health.healthy': 'Healthy',
+                    'health.warning': 'Warning',
+                    'health.limited': 'Limited',
+                    'msg.saving': 'Saving...',
+                    'msg.saved': 'Saved!',
+                    'msg.invalidUrl': 'Please enter a valid URL',
+                    'msg.authCleared': 'Auth cleared! Click Connect to scan a new QR code.',
+                    'msg.logsBackedUp': 'Logs backed up successfully!',
+                    'msg.error': 'Error: ',
+                    'msg.errSettings': 'Error saving settings: ',
+                    'msg.errOutbound': 'Error saving outbound limits: ',
+                    'msg.errWebhook': 'Error saving webhook: '
+                },
+                pt: {
+                    'app.title': 'WhatsApp AI Bot',
+                    'card.qr': 'QR Code',
+                    'qr.placeholder': 'Clique em "Conectar" para gerar o QR code',
+                    'qr.connected': 'Conectado ao WhatsApp',
+                    'qr.generating': 'Gerando QR code...',
+                    'card.controls': 'Controles',
+                    'btn.connect': 'Conectar',
+                    'btn.disconnect': 'Desconectar',
+                    'btn.clearAuth': 'Limpar sessão',
+                    'card.connInfo': 'Informações da conexão',
+                    'info.status': 'Situação',
+                    'info.phone': 'Número',
+                    'info.since': 'Conectado desde',
+                    'card.ai': 'Configuração da IA',
+                    'label.webhook': 'URL do webhook do n8n',
+                    'help.webhook': 'É para este endereço que as mensagens recebidas são enviadas.',
+                    'btn.saveWebhook': 'Salvar URL',
+                    'card.antiban': 'Limites de resposta',
+                    'card.outbound': 'Limites de disparo',
+                    'help.outbound': 'Orçamento separado para as mensagens que <strong>você inicia</strong> &mdash; os avisos agendados enviados por <code>POST /api/send</code>. Os limites acima valem para respostas, quando o contato escreveu primeiro. Começar conversa que ninguém pediu é o caminho mais arriscado, então mantenha estes mais apertados.',
+                    'preset.new': 'Conta nova',
+                    'preset.balanced': 'Equilibrado',
+                    'preset.higher': 'Mais alto',
+                    'preset.custom': 'Personalizado',
+                    'preset.configure': 'Configurar',
+                    'field.msgsHour': 'Mensagens / hora',
+                    'field.msgsDay': 'Mensagens / dia',
+                    'field.chatsHour': 'Conversas únicas / hora',
+                    'field.chatsDay': 'Conversas únicas / dia',
+                    'btn.saveSettings': 'Salvar limites',
+                    'btn.saveOutbound': 'Salvar limites de disparo',
+                    'usage.title': 'Uso atual',
+                    'usage.msgsHour': 'Mensagens nesta hora',
+                    'usage.msgsDay': 'Mensagens hoje',
+                    'usage.chatsHour': 'Conversas únicas nesta hora',
+                    'usage.chatsDay': 'Conversas únicas hoje',
+                    'card.log': 'Registro de atividade',
+                    'btn.exportJson': 'Exportar JSON',
+                    'btn.exportCsv': 'Exportar CSV',
+                    'btn.backupClear': 'Backup e limpar',
+                    'log.empty': 'Nenhuma atividade ainda',
+                    'log.entries': '{n} registros',
+                    'ws.connecting': 'Conectando...',
+                    'ws.live': 'Ao vivo',
+                    'ws.reconnecting': 'Reconectando...',
+                    'status.disconnected': 'Desconectado',
+                    'status.connecting': 'Conectando',
+                    'status.connected': 'Conectado',
+                    'health.healthy': 'Saudável',
+                    'health.warning': 'Atenção',
+                    'health.limited': 'No limite',
+                    'msg.saving': 'Salvando...',
+                    'msg.saved': 'Salvo!',
+                    'msg.invalidUrl': 'Informe uma URL válida',
+                    'msg.authCleared': 'Sessão limpa. Clique em Conectar para ler um novo QR code.',
+                    'msg.logsBackedUp': 'Backup dos registros concluído.',
+                    'msg.error': 'Erro: ',
+                    'msg.errSettings': 'Erro ao salvar os limites: ',
+                    'msg.errOutbound': 'Erro ao salvar os limites de disparo: ',
+                    'msg.errWebhook': 'Erro ao salvar o webhook: '
+                }
+            };
+
+            var lang = 'en';
+            try {
+                var salvo = localStorage.getItem('painel.lang');
+                if (salvo && I18N[salvo]) {
+                    lang = salvo;
+                } else if ((navigator.language || '').toLowerCase().indexOf('pt') === 0) {
+                    lang = 'pt';
+                }
+            } catch (e) { /* private mode: fall back to English */ }
+
+            /** Translate a key, with optional {placeholder} substitution. */
+            function t(chave, vars) {
+                var txt = (I18N[lang] && I18N[lang][chave]) || (I18N.en[chave]) || chave;
+                if (vars) {
+                    Object.keys(vars).forEach(function(k) {
+                        txt = txt.replace('{' + k + '}', vars[k]);
+                    });
+                }
+                return txt;
+            }
+
+            /** Repaint every tagged element in the current language. */
+            function applyLang() {
+                document.documentElement.lang = (lang === 'pt') ? 'pt-BR' : 'en';
+
+                document.querySelectorAll('[data-i18n]').forEach(function(el) {
+                    el.textContent = t(el.getAttribute('data-i18n'));
+                });
+                document.querySelectorAll('[data-i18n-html]').forEach(function(el) {
+                    el.innerHTML = t(el.getAttribute('data-i18n-html'));
+                });
+                document.querySelectorAll('.lang-btn').forEach(function(btn) {
+                    btn.classList.toggle('active', btn.getAttribute('data-lang') === lang);
+                });
+
+                // Anything already rendered by the script has to be redrawn,
+                // because its text came from t() at the time it was written.
+                if (typeof repaintDynamic === 'function') repaintDynamic();
+            }
+
+            function setLang(novo) {
+                if (!I18N[novo]) return;
+                lang = novo;
+                try { localStorage.setItem('painel.lang', novo); } catch (e) { /* ignore */ }
+                applyLang();
+            }
+
+            document.addEventListener('DOMContentLoaded', function() {
+                document.querySelectorAll('.lang-btn').forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        setLang(btn.getAttribute('data-lang'));
+                    });
+                });
+                applyLang();
+            });
 
             let ws = null;
             let reconnectTimeout = null;
@@ -877,12 +1110,12 @@
 
                 ws.onopen = function() {
                     elements.wsIndicator.className = 'ws-indicator ws-connected';
-                    elements.wsStatus.textContent = 'Live';
+                    elements.wsStatus.textContent = t('ws.live');
                 };
 
                 ws.onclose = function() {
                     elements.wsIndicator.className = 'ws-indicator ws-disconnected';
-                    elements.wsStatus.textContent = 'Reconnecting...';
+                    elements.wsStatus.textContent = t('ws.reconnecting');
                     clearTimeout(reconnectTimeout);
                     reconnectTimeout = setTimeout(connectWebSocket, 3000);
                 };
@@ -895,6 +1128,34 @@
                     var data = JSON.parse(event.data);
                     handleWebSocketMessage(data);
                 };
+            }
+
+            // Last values the script painted, so a language switch can redraw
+            // them. Without this, switching to PT would leave "Connected" and
+            // "Healthy" in English until the next WebSocket update arrived.
+            var ultimoStatusConexao = 'disconnected';
+            var ultimaSaude = null;
+
+            function repaintDynamic() {
+                if (elements.statusBadge) {
+                    elements.statusBadge.textContent = t('status.' + ultimoStatusConexao);
+                }
+                if (elements.infoStatus && elements.infoStatus.textContent) {
+                    elements.infoStatus.textContent = t('status.' + ultimoStatusConexao);
+                }
+                if (ultimaSaude && elements.usageStatus) {
+                    elements.usageStatus.textContent = t('health.' + ultimaSaude);
+                }
+                if (elements.logCount) {
+                    var n = elements.logContainer
+                        ? elements.logContainer.querySelectorAll('.log-entry').length : 0;
+                    elements.logCount.textContent = t('log.entries', { n: n });
+                }
+                if (elements.wsStatus) {
+                    var vivo = elements.wsIndicator
+                        && elements.wsIndicator.classList.contains('ws-connected');
+                    elements.wsStatus.textContent = vivo ? t('ws.live') : t('ws.reconnecting');
+                }
             }
 
             function handleWebSocketMessage(data) {
@@ -929,9 +1190,10 @@
 
             function updateStatus(status, qr, phone, connectedAt) {
                 elements.statusBadge.className = 'status-badge status-' + status;
-                elements.statusBadge.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+                ultimoStatusConexao = status;
+                elements.statusBadge.textContent = t('status.' + status);
 
-                elements.infoStatus.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+                elements.infoStatus.textContent = t('status.' + status);
                 elements.infoPhone.textContent = phone || '-';
                 elements.infoConnected.textContent = connectedAt
                     ? new Date(connectedAt).toLocaleString()
@@ -948,24 +1210,24 @@
                     elements.qrCode.style.display = 'none';
                     elements.qrPlaceholder.style.display = 'flex';
                     elements.qrIcon.textContent = '\u2705';
-                    elements.qrText.textContent = 'Connected to WhatsApp';
+                    elements.qrText.textContent = t('qr.connected');
                 } else if (status === 'connecting') {
                     elements.qrCode.style.display = 'none';
                     elements.qrPlaceholder.style.display = 'flex';
                     elements.qrIcon.textContent = '\u23F3';
-                    elements.qrText.textContent = 'Generating QR code...';
+                    elements.qrText.textContent = t('qr.generating');
                 } else {
                     elements.qrCode.style.display = 'none';
                     elements.qrPlaceholder.style.display = 'flex';
                     elements.qrIcon.textContent = '\uD83D\uDCF1';
-                    elements.qrText.textContent = 'Click "Connect" to generate QR code';
+                    elements.qrText.textContent = t('qr.placeholder');
                 }
             }
 
             function renderLogs(logs) {
                 if (!logs || logs.length === 0) {
                     elements.logEmpty.style.display = 'block';
-                    elements.logCount.textContent = '0 entries';
+                    elements.logCount.textContent = t('log.entries', { n: 0 });
                     return;
                 }
 
@@ -983,7 +1245,7 @@
                     elements.logContainer.insertBefore(entry, elements.logEmpty);
                 });
 
-                elements.logCount.textContent = logs.length + ' entries';
+                elements.logCount.textContent = t('log.entries', { n: logs.length });
             }
 
             function appendLog(log) {
@@ -993,7 +1255,7 @@
                 elements.logContainer.insertBefore(entry, elements.logContainer.firstChild);
 
                 var entries = elements.logContainer.querySelectorAll('.log-entry');
-                elements.logCount.textContent = entries.length + ' entries';
+                elements.logCount.textContent = t('log.entries', { n: entries.length });
 
                 while (entries.length > 100) {
                     var lastEntry = entries[entries.length - 1];
@@ -1036,7 +1298,7 @@
                 elements.btnConnect.disabled = true;
                 apiCall('/connect', 'POST').then(function(result) {
                     if (result.error) {
-                        alert('Error: ' + result.error);
+                        alert(t('msg.error') + result.error);
                         elements.btnConnect.disabled = false;
                     }
                 });
@@ -1048,7 +1310,7 @@
                 elements.btnDisconnect.disabled = true;
                 apiCall('/disconnect', 'POST').then(function(result) {
                     if (result.error) {
-                        alert('Error: ' + result.error);
+                        alert(t('msg.error') + result.error);
                         elements.btnDisconnect.disabled = false;
                     }
                 });
@@ -1061,9 +1323,9 @@
                 apiCall('/clear-auth', 'POST').then(function(result) {
                     elements.btnClear.disabled = false;
                     if (result.error) {
-                        alert('Error: ' + result.error);
+                        alert(t('msg.error') + result.error);
                     } else {
-                        alert('Auth cleared! Click Connect to scan a new QR code.');
+                        alert(t('msg.authCleared'));
                     }
                 });
             });
@@ -1086,16 +1348,16 @@
                 apiCall('/logs/backup', 'POST').then(function(result) {
                     elements.btnBackup.disabled = false;
                     if (result.error) {
-                        alert('Error: ' + result.error);
+                        alert(t('msg.error') + result.error);
                     } else {
-                        alert('Logs backed up successfully!');
+                        alert(t('msg.logsBackedUp'));
                         // Clear the log display
                         while (elements.logContainer.firstChild) {
                             if (elements.logContainer.firstChild === elements.logEmpty) break;
                             elements.logContainer.removeChild(elements.logContainer.firstChild);
                         }
                         elements.logEmpty.style.display = 'block';
-                        elements.logCount.textContent = '0 entries';
+                        elements.logCount.textContent = t('log.entries', { n: 0 });
                     }
                 });
             });
@@ -1112,7 +1374,8 @@
 
                 // Update status badge
                 elements.usageStatus.className = 'usage-status ' + health.status;
-                elements.usageStatus.textContent = health.status.charAt(0).toUpperCase() + health.status.slice(1);
+                ultimaSaude = health.status;
+                elements.usageStatus.textContent = t('health.' + health.status);
 
                 // Update progress bars
                 updateUsageBar(
@@ -1220,7 +1483,7 @@
             // Save settings button
             elements.btnSaveSettings.addEventListener('click', function() {
                 elements.btnSaveSettings.disabled = true;
-                elements.btnSaveSettings.textContent = 'Saving...';
+                elements.btnSaveSettings.textContent = t('msg.saving');
 
                 var payload = { preset: currentPreset };
 
@@ -1239,22 +1502,22 @@
                 .then(function(response) { return response.json(); })
                 .then(function(result) {
                     elements.btnSaveSettings.disabled = false;
-                    elements.btnSaveSettings.textContent = 'Save Settings';
+                    elements.btnSaveSettings.textContent = t('btn.saveSettings');
 
                     if (result.error) {
-                        alert('Error: ' + result.error);
+                        alert(t('msg.error') + result.error);
                     } else {
                         // Settings will be updated via WebSocket broadcast
-                        elements.btnSaveSettings.textContent = 'Saved!';
+                        elements.btnSaveSettings.textContent = t('msg.saved');
                         setTimeout(function() {
-                            elements.btnSaveSettings.textContent = 'Save Settings';
+                            elements.btnSaveSettings.textContent = t('btn.saveSettings');
                         }, 1500);
                     }
                 })
                 .catch(function(error) {
                     elements.btnSaveSettings.disabled = false;
-                    elements.btnSaveSettings.textContent = 'Save Settings';
-                    alert('Error saving settings: ' + error.message);
+                    elements.btnSaveSettings.textContent = t('btn.saveSettings');
+                    alert(t('msg.errSettings') + error.message);
                 });
             });
 
@@ -1305,7 +1568,7 @@
 
                 outSave.addEventListener('click', function() {
                     outSave.disabled = true;
-                    outSave.textContent = 'Saving...';
+                    outSave.textContent = t('msg.saving');
 
                     var payload = { preset: outPreset };
                     if (outPreset === 'custom') {
@@ -1323,19 +1586,19 @@
                     .then(function(result) {
                         outSave.disabled = false;
                         if (result.error) {
-                            outSave.textContent = 'Save Outbound Limits';
-                            alert('Error: ' + result.error);
+                            outSave.textContent = t('btn.saveOutbound');
+                            alert(t('msg.error') + result.error);
                             return;
                         }
-                        outSave.textContent = 'Saved!';
+                        outSave.textContent = t('msg.saved');
                         setTimeout(function() {
-                            outSave.textContent = 'Save Outbound Limits';
+                            outSave.textContent = t('btn.saveOutbound');
                         }, 1500);
                     })
                     .catch(function(error) {
                         outSave.disabled = false;
-                        outSave.textContent = 'Save Outbound Limits';
-                        alert('Error saving outbound limits: ' + error.message);
+                        outSave.textContent = t('btn.saveOutbound');
+                        alert(t('msg.errOutbound') + error.message);
                     });
                 });
 
@@ -1346,12 +1609,12 @@
             elements.btnSaveWebhook.addEventListener('click', function() {
                 var url = elements.inputWebhookUrl.value.trim();
                 if (!url) {
-                    alert('Please enter a valid URL');
+                    alert(t('msg.invalidUrl'));
                     return;
                 }
 
                 elements.btnSaveWebhook.disabled = true;
-                elements.btnSaveWebhook.textContent = 'Saving...';
+                elements.btnSaveWebhook.textContent = t('msg.saving');
 
                 fetch('/api/settings/webhook', {
                     method: 'POST',
@@ -1361,21 +1624,21 @@
                 .then(function(response) { return response.json(); })
                 .then(function(result) {
                     elements.btnSaveWebhook.disabled = false;
-                    elements.btnSaveWebhook.textContent = 'Save Webhook URL';
+                    elements.btnSaveWebhook.textContent = t('btn.saveWebhook');
 
                     if (result.error) {
-                        alert('Error: ' + result.error);
+                        alert(t('msg.error') + result.error);
                     } else {
-                        elements.btnSaveWebhook.textContent = 'Saved!';
+                        elements.btnSaveWebhook.textContent = t('msg.saved');
                         setTimeout(function() {
-                            elements.btnSaveWebhook.textContent = 'Save Webhook URL';
+                            elements.btnSaveWebhook.textContent = t('btn.saveWebhook');
                         }, 1500);
                     }
                 })
                 .catch(function(error) {
                     elements.btnSaveWebhook.disabled = false;
-                    elements.btnSaveWebhook.textContent = 'Save Webhook URL';
-                    alert('Error saving webhook: ' + error.message);
+                    elements.btnSaveWebhook.textContent = t('btn.saveWebhook');
+                    alert(t('msg.errWebhook') + error.message);
                 });
             });
 
