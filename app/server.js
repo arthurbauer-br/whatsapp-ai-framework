@@ -48,10 +48,29 @@ const LOG_BACKUP_DAYS = 30; // Auto backup after 30 days
 // ========================================
 // Baileys does NOT honour the HTTP_PROXY / HTTPS_PROXY environment variables,
 // so the agents have to be injected explicitly into makeWASocket().
-// Two different kinds of agent are needed:
-//   - PROXY_WS_AGENT   : a Node http.Agent, used by `ws` for the WhatsApp socket
-//   - PROXY_DISPATCHER : an undici Dispatcher, used by global fetch() for media
-//                        upload/download and history sync
+//
+// Two DIFFERENT kinds of agent are needed, and they are NOT interchangeable:
+//
+//   - PROXY_HTTP_AGENT : a Node http.Agent (https-proxy-agent). Used by `ws`
+//                        for the WhatsApp socket AND by the media UPLOAD path.
+//   - PROXY_DISPATCHER : an undici Dispatcher (undici ProxyAgent). Used by
+//                        global fetch() for media DOWNLOAD and history sync.
+//
+// Upload and download take different roads inside Baileys 7, on purpose:
+//
+//   getWAUploadToServer({ fetchAgent }) -> uploadMedia({ agent: fetchAgent })
+//     -> isNodeRuntime() ? uploadWithNodeHttp : uploadWithFetch
+//     -> httpModule.request({ agent })          <- node:https, NOT fetch
+//
+// On Node it always takes the first branch, because undici buffers the entire
+// request body in memory before sending it (nodejs/undici#4058) and a 25 MB
+// video would cost 25 MB of heap. So `fetchAgent` ends up at node:https, which
+// accepts only an http.Agent. Handing it the undici ProxyAgent throws
+// ERR_INVALID_ARG_TYPE on every upload host in turn and the send dies with
+// "Media upload failed on all hosts" - which is exactly what happened here.
+//
+// Download is the mirror image: downloadEncryptedContent -> getHttpStream ->
+// fetch(url, { dispatcher }), and that one accepts only the undici agent.
 //
 // FAIL-CLOSED POLICY: WhatsApp traffic must NEVER leave through the datacenter IP.
 // If the proxy is not configured, or its agents cannot be built, the process
@@ -67,12 +86,12 @@ if (!PROXY_URL) {
     process.exit(1);
 }
 
-let PROXY_WS_AGENT;      // -> makeWASocket({ agent })
-let PROXY_DISPATCHER;    // -> makeWASocket({ fetchAgent, options.dispatcher })
+let PROXY_HTTP_AGENT;    // -> makeWASocket({ agent, fetchAgent })
+let PROXY_DISPATCHER;    // -> makeWASocket({ options: { dispatcher } })
 
 try {
     const { ProxyAgent } = require('undici');
-    PROXY_WS_AGENT = new HttpsProxyAgent(PROXY_URL);
+    PROXY_HTTP_AGENT = new HttpsProxyAgent(PROXY_URL);
     PROXY_DISPATCHER = new ProxyAgent(PROXY_URL);
 } catch (err) {
     console.error('[Proxy] FATAL: could not build the proxy agents:', err.message);
@@ -466,9 +485,12 @@ async function startWhatsApp() {
         const { state, saveCreds } = await useMultiFileAuthState(AUTH_FOLDER);
 
         whatsappSocket = makeWASocket({
-            agent: PROXY_WS_AGENT,                        // WebSocket connection
-            fetchAgent: PROXY_DISPATCHER,                 // media upload
-            options: { dispatcher: PROXY_DISPATCHER },    // media / history download
+            // http.Agent: the WebSocket, and the media UPLOAD, which runs on
+            // node:https and rejects an undici agent outright.
+            agent: PROXY_HTTP_AGENT,
+            fetchAgent: PROXY_HTTP_AGENT,
+            // undici Dispatcher: media DOWNLOAD and history sync, on fetch().
+            options: { dispatcher: PROXY_DISPATCHER },
             auth: state,
             printQRInTerminal: false // We display QR in web UI instead
         });
@@ -1068,8 +1090,16 @@ app.post('/api/send', async (req, res) => {
 app.post('/api/send-midia',
     express.raw({ type: '*/*', limit: `${Math.ceil(midias.MAX_BYTES / (1024 * 1024)) + 2}mb` }),
     async (req, res) => {
+        // Every refusal says so in the log. A silent 4xx here looks, from the
+        // attendant's phone, exactly like a 500 deeper in - and a test that
+        // fails without writing a line costs a full round of guessing.
+        const recusar = (http, corpo) => {
+            console.log(`[SendMidia] refused ${http}: ${JSON.stringify(corpo)}`);
+            return res.status(http).json(corpo);
+        };
+
         if (!isSendAuthorized(req)) {
-            return res.status(403).json({ error: 'nao_autorizado' });
+            return recusar(403, { error: 'nao_autorizado' });
         }
 
         const to = String(req.query.to || '');
@@ -1080,21 +1110,21 @@ app.post('/api/send-midia',
         const buffer = req.body;
 
         if (!to || !Buffer.isBuffer(buffer) || !buffer.length) {
-            return res.status(400).json({ error: 'to_and_file_required' });
+            return recusar(400, { error: 'to_and_file_required' });
         }
         if (buffer.length > midias.MAX_BYTES) {
-            return res.status(413).json({ error: 'file_too_large', max: midias.MAX_BYTES });
+            return recusar(413, { error: 'file_too_large', max: midias.MAX_BYTES });
         }
         if (!Object.values(midias.TIPOS).includes(tipo)) {
-            return res.status(415).json({ error: 'unsupported_type', tipo });
+            return recusar(415, { error: 'unsupported_type', tipo });
         }
         if (connectionStatus !== 'connected' || !whatsappSocket) {
-            return res.status(503).json({ error: 'whatsapp_disconnected', status: connectionStatus });
+            return recusar(503, { error: 'whatsapp_disconnected', status: connectionStatus });
         }
 
         const digits = to.replace(/\D/g, '');
         if (digits.length < 10) {
-            return res.status(400).json({ error: 'invalid_number', to });
+            return recusar(400, { error: 'invalid_number', to });
         }
 
         try {
