@@ -476,8 +476,15 @@ async function safeSendMessage(socket, jid, message, incomingText, antiBanManage
             return { sent: false, reason: canSend.reason, waitTime: canSend.waitTime };
         }
 
-        // Get message text for delay calculation
-        const messageText = typeof message === 'string' ? message : (message.text || '');
+        // Get message text for delay calculation.
+        //
+        // `caption` matters for media: a photo with a long caption should
+        // take as long to "type" as the same words sent as text. Without it
+        // every attachment would go out with the minimum delay, which is a
+        // pattern no human produces.
+        const messageText = typeof message === 'string'
+            ? message
+            : (message.text || message.caption || '');
 
         // Calculate human-like delay
         const delayMs = antiBanManager.calculateDelay(incomingText, messageText);
@@ -494,12 +501,16 @@ async function safeSendMessage(socket, jid, message, incomingText, antiBanManage
 
         // Send the message
         const messageObj = typeof message === 'string' ? { text: message } : message;
-        await socket.sendMessage(jid, messageObj);
+        // Keep the result: WhatsApp's own message id is what lets the
+        // attendance API attach a file to the row it writes for this
+        // message. Discarding it forced a made-up id, and the two sides
+        // stopped agreeing on what to call the same message.
+        const enviado = await socket.sendMessage(jid, messageObj);
 
         // Record the message for rate limiting
         antiBanManager.recordMessage(jid);
 
-        return { sent: true, delay: delayMs };
+        return { sent: true, delay: delayMs, id: enviado?.key?.id || null };
     });
 }
 

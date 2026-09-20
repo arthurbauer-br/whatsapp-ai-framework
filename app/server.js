@@ -24,6 +24,7 @@ const { HttpsProxyAgent } = require('https-proxy-agent');
 // Anti-Ban & Settings Modules
 const { AntiBanManager, safeSendMessage, simulateTyping, delay, getQueueDepth, sharedBudget } = require('./src/utils/anti-ban');
 const { loadSettings, getAntiBanSettings, updateAntiBanSettings } = require('./src/utils/settings');
+const midias = require('./src/utils/midias');
 
 // ========================================
 // CONFIGURATION
@@ -615,6 +616,19 @@ async function handleIncomingMessage(msg) {
         const phoneNumber = await resolvePhoneNumber(msg.key);
         const timestamp = new Date().toISOString();
 
+        // Store the attachment, if there is one.
+        //
+        // Deliberately NOT awaited: a 16 MB video takes seconds to come down
+        // through the residential proxy, and the customer would sit staring
+        // at the chat while the bot said nothing. The file attaches itself to
+        // the message later, by id - the app shows it on the next refresh.
+        if (midias.descrever(msg.message)) {
+            midias.guardarRecebida(whatsappSocket, msg, phoneNumber, PROXY_DISPATCHER)
+                .then((info) => {
+                    if (info) logActivity(`Saved ${info.tipo} from ${phoneNumber}`, 'info');
+                });
+        }
+
         // Log with reply context if present
         const replyContext = isReply ? ` (replying to: "${quotedText?.substring(0, 30)}...")` : '';
         console.log(`[Message] From ${phoneNumber} [${messageType}]: ${messageText}${replyContext}`);
@@ -1043,6 +1057,81 @@ app.post('/api/send', async (req, res) => {
         return res.status(500).json({ sent: false, error: error.message });
     }
 });
+
+// ========================================
+// OUTBOUND MEDIA (used by the atendimento API)
+// ========================================
+// Raw body instead of multipart on purpose: multipart would mean adding a
+// parser dependency (multer/busboy) to this container just to undo what the
+// other side wrapped. The metadata rides in the query string, which is fine
+// because this call never leaves the Docker network.
+app.post('/api/send-midia',
+    express.raw({ type: '*/*', limit: `${Math.ceil(midias.MAX_BYTES / (1024 * 1024)) + 2}mb` }),
+    async (req, res) => {
+        if (!isSendAuthorized(req)) {
+            return res.status(403).json({ error: 'nao_autorizado' });
+        }
+
+        const to = String(req.query.to || '');
+        const tipo = String(req.query.tipo || 'document');
+        const nome = String(req.query.nome || 'arquivo');
+        const mime = String(req.query.mime || '');
+        const legenda = String(req.query.legenda || '');
+        const buffer = req.body;
+
+        if (!to || !Buffer.isBuffer(buffer) || !buffer.length) {
+            return res.status(400).json({ error: 'to_and_file_required' });
+        }
+        if (buffer.length > midias.MAX_BYTES) {
+            return res.status(413).json({ error: 'file_too_large', max: midias.MAX_BYTES });
+        }
+        if (!Object.values(midias.TIPOS).includes(tipo)) {
+            return res.status(415).json({ error: 'unsupported_type', tipo });
+        }
+        if (connectionStatus !== 'connected' || !whatsappSocket) {
+            return res.status(503).json({ error: 'whatsapp_disconnected', status: connectionStatus });
+        }
+
+        const digits = to.replace(/\D/g, '');
+        if (digits.length < 10) {
+            return res.status(400).json({ error: 'invalid_number', to });
+        }
+
+        try {
+            const [check] = await whatsappSocket.onWhatsApp(digits);
+            if (!check || !check.exists) {
+                logActivity(`Media send skipped - ${digits} is not on WhatsApp`, 'warning');
+                return res.status(404).json({ sent: false, error: 'not_on_whatsapp', to: digits });
+            }
+
+            // Same budget and the same global queue as a text reply: a file
+            // is a message, and letting media skip the queue would put two
+            // chats "typing" at once - exactly what the queue exists to
+            // prevent.
+            const conteudo = midias.montarEnvio(tipo, buffer, nome, mime, legenda);
+            const result = await safeSendMessage(
+                whatsappSocket, check.jid, conteudo, '', antiBanManager,
+            );
+
+            if (!result.sent) {
+                logActivity(`Media send blocked for ${digits}: ${result.reason}`, 'warning');
+                return res.status(429).json({
+                    sent: false, reason: result.reason, waitTime: result.waitTime,
+                });
+            }
+
+            logActivity(`Sent ${tipo} to ${digits} (${buffer.length} bytes, delayed ${result.delay}ms)`, 'success');
+            broadcastAntiBanStats();
+            return res.json({
+                sent: true, to: digits, jid: check.jid,
+                id: result.id || null, delay: result.delay, bytes: buffer.length,
+            });
+        } catch (error) {
+            console.error('[SendMidia] Error:', error.message);
+            logActivity(`Media send error for ${digits}: ${error.message}`, 'error');
+            return res.status(500).json({ sent: false, error: error.message });
+        }
+    });
 
 // Get settings
 app.get('/api/settings', (req, res) => {
