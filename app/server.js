@@ -25,6 +25,7 @@ const { HttpsProxyAgent } = require('https-proxy-agent');
 const { AntiBanManager, safeSendMessage, simulateTyping, delay, getQueueDepth, sharedBudget } = require('./src/utils/anti-ban');
 const { loadSettings, getAntiBanSettings, updateAntiBanSettings } = require('./src/utils/settings');
 const midias = require('./src/utils/midias');
+const contatosWA = require('./src/utils/contatos');
 
 // ========================================
 // CONFIGURATION
@@ -100,6 +101,18 @@ try {
 }
 
 console.log(`[Proxy] All WhatsApp traffic forced through ${PROXY_URL}`);
+
+// Contact name + profile picture. Getters, not values: the socket is rebuilt
+// on every reconnect. The dispatcher is the undici one because the picture
+// download is a plain fetch() to pps.whatsapp.net - it does NOT inherit the
+// WebSocket's proxy, and without it every customer's photo would be fetched
+// from the datacenter IP.
+contatosWA.iniciar({
+    obterSocket: () => whatsappSocket,
+    conectado: () => connectionStatus === 'connected' && !!whatsappSocket,
+    dispatcher: PROXY_DISPATCHER,
+    resolverNumero: (jid) => resolvePhoneNumber({ remoteJid: jid }),
+});
 
 // Google Drive Configuration
 const GOOGLE_CREDENTIALS_FILE = process.env.GOOGLE_CREDENTIALS_FILE || path.join(__dirname, 'google-credentials.json');
@@ -556,6 +569,13 @@ async function startWhatsApp() {
             }
         });
 
+        // Contact name / profile picture changes. Only forwarded to the
+        // attendance API, which ignores anyone who never messaged us - the
+        // initial sync delivers the whole phone address book here, and none
+        // of it may turn into profile-picture lookups.
+        whatsappSocket.ev.on('contacts.upsert', (lista) => { contatosWA.aoEventoContatos(lista); });
+        whatsappSocket.ev.on('contacts.update', (lista) => { contatosWA.aoEventoContatos(lista); });
+
     } catch (error) {
         console.error('[WhatsApp] Connection error:', error);
         connectionStatus = 'disconnected';
@@ -637,6 +657,12 @@ async function handleIncomingMessage(msg) {
         // itself, which matches no customer record anywhere.
         const phoneNumber = await resolvePhoneNumber(msg.key);
         const timestamp = new Date().toISOString();
+
+        // Contact name (pushName, free - it ships inside the message) and,
+        // when the attendance API says the cache is empty or stale, a queued
+        // profile-picture lookup. Not awaited and never throws: this is
+        // decoration, it must not delay the reply.
+        contatosWA.aoReceber(msg, phoneNumber);
 
         // Store the attachment, if there is one.
         //
