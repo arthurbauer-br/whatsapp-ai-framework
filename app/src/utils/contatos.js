@@ -309,10 +309,14 @@ async function aoReceber(msg, numero) {
 
         const ultimo = avisados.get(numero);
         if (ultimo && ultimo.nome === nome && Date.now() - ultimo.em < REAVISO_MS) return;
+
+        const buscar = await avisarApi(numero, nome);
+        // Marca como avisado so DEPOIS que a API aceitou. Marcando antes, uma
+        // falha dela (banco fora, migracao faltando) calava este contato por
+        // 10 minutos - e a proxima mensagem dele nao tentava de novo.
         avisados.set(numero, { nome, em: Date.now() });
         if (avisados.size > 5000) avisados.delete(avisados.keys().next().value);
-
-        if (await avisarApi(numero, nome)) enfileirar(numero);
+        if (buscar) enfileirar(numero);
     } catch (erro) {
         console.log(`[Contatos] aviso de ${numero} falhou: ${erro.message}`);
     }
