@@ -1070,6 +1070,42 @@ function podeVerificar() {
     return VERIFICACOES.length < VERIFICA_MAX_HORA;
 }
 
+// ========================================
+// REVOKE ("delete for everyone")
+// ========================================
+// WhatsApp only lets you revoke a message YOU sent, and only inside its own
+// time window - 60 hours today, and it is the server that decides, not us.
+// The attendance API filters by that window before calling, so a request
+// arriving here is expected to work; when WhatsApp refuses anyway, the error
+// goes back and the app says it could not.
+app.post('/api/apagar', async (req, res) => {
+    if (!isSendAuthorized(req)) {
+        return res.status(403).json({ error: 'nao_autorizado' });
+    }
+
+    const to = String(req.body?.to || '').replace(/\D/g, '');
+    const messageId = String(req.body?.message_id || '').trim();
+    const fromMe = req.body?.from_me !== false;
+
+    if (!to || !messageId) return res.status(400).json({ error: 'to_and_message_id_required' });
+    if (connectionStatus !== 'connected' || !whatsappSocket) {
+        return res.status(503).json({ error: 'whatsapp_disconnected', status: connectionStatus });
+    }
+
+    try {
+        const jid = `${to}@s.whatsapp.net`;
+        // A chave da mensagem original e o que identifica o que revogar.
+        // fromMe distingue "minha mensagem" de "dele": so a minha da para
+        // apagar para os dois lados numa conversa de duas pessoas.
+        await whatsappSocket.sendMessage(jid, { delete: { remoteJid: jid, fromMe, id: messageId } });
+        logActivity(`Revoked ${messageId} for ${to}`, 'info');
+        return res.json({ apagado: true, message_id: messageId });
+    } catch (error) {
+        console.error('[Apagar] Error:', error.message);
+        return res.status(500).json({ apagado: false, error: error.message });
+    }
+});
+
 app.post('/api/verificar', async (req, res) => {
     if (!isSendAuthorized(req)) {
         return res.status(403).json({ error: 'nao_autorizado' });
