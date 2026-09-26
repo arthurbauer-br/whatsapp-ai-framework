@@ -1087,8 +1087,26 @@ app.post('/api/verificar', async (req, res) => {
             VERIFICACOES.push(Date.now());
             const [r] = await whatsappSocket.onWhatsApp(numero);
             if (r?.exists) {
-                console.log(`[Verificar] ${numero}: existe`);
-                return res.json({ existe: true, numero, jid: r.jid || `${numero}@s.whatsapp.net` });
+                // O NUMERO QUE VALE E O DO JID, nao o que foi perguntado.
+                //
+                // No Brasil o mesmo celular pode estar registrado com ou sem
+                // o nono digito, e o onWhatsApp resolve isso: pergunta-se por
+                // 5551981339199 e ele responde exists:true com o jid
+                // 555181339199@s.whatsapp.net, que e a conta de verdade.
+                //
+                // Devolver o numero perguntado em vez do jid foi o que criou
+                // duas conversas para a mesma pessoa: uma com o historico,
+                // gravada pelo jid que chega nas mensagens, e outra vazia,
+                // gravada pelo que o atendente digitou.
+                const doJid = String(r.jid || '').endsWith('@s.whatsapp.net')
+                    ? String(r.jid).split('@')[0].split(':')[0].replace(/\D/g, '')
+                    : '';
+                const real = doJid.length >= 10 ? doJid : numero;
+                console.log(`[Verificar] ${numero}: existe como ${real}`);
+                return res.json({
+                    existe: true, numero: real, perguntado: numero,
+                    jid: r.jid || `${real}@s.whatsapp.net`,
+                });
             }
             console.log(`[Verificar] ${numero}: nao existe`);
         }
