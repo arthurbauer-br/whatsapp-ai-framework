@@ -1238,6 +1238,12 @@ app.post('/api/send', async (req, res) => {
         broadcastAntiBanStats();
         return res.json({
             sent: true, to: digits, jid: check.jid,
+            // O id do WhatsApp da mensagem que acabou de sair. Sem ele a API
+            // grava a linha com message_id nulo, e ai duas coisas param de
+            // funcionar: citar esta mensagem depois, e o "apagar para todos"
+            // - as duas se amarram por este id. O safeSendMessage ja devolvia;
+            // esta rota e que jogava fora.
+            id: result.id || null,
             delay: result.delay, budget: budgetName
         });
     } catch (error) {
