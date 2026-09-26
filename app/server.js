@@ -1043,6 +1043,62 @@ function isSendAuthorized(req) {
     return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
+// ========================================
+// EXISTS-ON-WHATSAPP CHECK (used by the app to start a new conversation)
+// ========================================
+// The attendance API sends the candidate numbers - the same phone can be
+// registered with or without Brazil's ninth digit, and only WhatsApp knows
+// which. We answer with the first one that exists.
+//
+// Rate limited on purpose, and separately from the message budget. Checking
+// numbers in bulk is one of the classic ways an account gets flagged: it is
+// exactly what a scraper does. A human typing a number into an app does a
+// handful per hour, so a low ceiling costs nothing and closes the door on a
+// loop somewhere calling this a thousand times.
+const VERIFICACOES = [];
+const VERIFICA_MAX_HORA = parseInt(process.env.VERIFICA_MAX_HORA || '40', 10) || 40;
+
+function podeVerificar() {
+    const umaHora = 60 * 60 * 1000;
+    while (VERIFICACOES.length && Date.now() - VERIFICACOES[0] > umaHora) VERIFICACOES.shift();
+    return VERIFICACOES.length < VERIFICA_MAX_HORA;
+}
+
+app.post('/api/verificar', async (req, res) => {
+    if (!isSendAuthorized(req)) {
+        return res.status(403).json({ error: 'nao_autorizado' });
+    }
+    const numeros = (Array.isArray(req.body?.numeros) ? req.body.numeros : [])
+        .map((n) => String(n || '').replace(/\D/g, ''))
+        .filter((n) => n.length >= 10 && n.length <= 15)
+        .slice(0, 2);
+
+    if (!numeros.length) return res.status(400).json({ error: 'numeros_required' });
+    if (connectionStatus !== 'connected' || !whatsappSocket) {
+        return res.status(503).json({ error: 'whatsapp_disconnected', status: connectionStatus });
+    }
+    if (!podeVerificar()) {
+        console.log(`[Verificar] teto de ${VERIFICA_MAX_HORA}/hora atingido`);
+        return res.status(429).json({ error: 'limite_verificacao', max: VERIFICA_MAX_HORA });
+    }
+
+    try {
+        for (const numero of numeros) {
+            VERIFICACOES.push(Date.now());
+            const [r] = await whatsappSocket.onWhatsApp(numero);
+            if (r?.exists) {
+                console.log(`[Verificar] ${numero}: existe`);
+                return res.json({ existe: true, numero, jid: r.jid || `${numero}@s.whatsapp.net` });
+            }
+            console.log(`[Verificar] ${numero}: nao existe`);
+        }
+        return res.json({ existe: false, numero: numeros[0] });
+    } catch (error) {
+        console.error('[Verificar] Error:', error.message);
+        return res.status(500).json({ error: error.message });
+    }
+});
+
 app.post('/api/send', async (req, res) => {
     if (!isSendAuthorized(req)) {
         return res.status(403).json({ error: 'nao_autorizado', hint: 'send the X-N8N-Token header' });
