@@ -1159,6 +1159,27 @@ app.post('/api/verificar', async (req, res) => {
     }
 });
 
+/**
+ * Monta o objeto que o Baileys usa para citar uma mensagem.
+ *
+ * O Baileys quer a mensagem ORIGINAL inteira para citar, e nos nao a temos -
+ * ela passou por aqui ha horas e nao foi guardada. Mas ele so usa tres coisas
+ * dela: o id, de quem era, e um conteudo para desenhar na citacao. Entao a
+ * gente remonta o minimo:
+ *
+ *   key.id       - o que amarra a citacao a mensagem original no aparelho
+ *                  do cliente. Errado aqui, a citacao aparece sem destino.
+ *   key.fromMe   - de quem era. Troca o "Voce" pelo nome dele na citacao.
+ *   message      - o texto que aparece dentro da citacao.
+ */
+function montarCitacao(jid, q) {
+    if (!q || !q.id) return undefined;
+    return {
+        key: { remoteJid: jid, fromMe: !!q.from_me, id: String(q.id) },
+        message: { conversation: String(q.texto || '') },
+    };
+}
+
 app.post('/api/send', async (req, res) => {
     if (!isSendAuthorized(req)) {
         return res.status(403).json({ error: 'nao_autorizado', hint: 'send the X-N8N-Token header' });
@@ -1199,7 +1220,11 @@ app.post('/api/send', async (req, res) => {
 
         // safeSendMessage applies the anti-ban rate limits and human-like delays,
         // and waits its turn in the global send queue.
-        const result = await safeSendMessage(whatsappSocket, check.jid, message, '', budget);
+        const citacao = montarCitacao(check.jid, req.body?.quoted);
+        const result = await safeSendMessage(
+            whatsappSocket, check.jid, message, '', budget,
+            citacao ? { quoted: citacao } : undefined,
+        );
 
         if (!result.sent) {
             logActivity(`Send blocked for ${digits} (${budgetName}): ${result.reason}`, 'warning');

@@ -464,7 +464,7 @@ async function simulateTyping(socket, jid, messageLength) {
  * @param {string} incomingText - Original incoming message text
  * @param {AntiBanManager} antiBanManager - Anti-ban manager instance
  */
-async function safeSendMessage(socket, jid, message, incomingText, antiBanManager) {
+async function safeSendMessage(socket, jid, message, incomingText, antiBanManager, opcoes) {
     // The whole type-wait-send cycle runs exclusively: never two chats typing
     // at the same time. See GLOBAL SEND QUEUE above.
     return enqueueSend(async () => {
@@ -505,7 +505,10 @@ async function safeSendMessage(socket, jid, message, incomingText, antiBanManage
         // attendance API attach a file to the row it writes for this
         // message. Discarding it forced a made-up id, and the two sides
         // stopped agreeing on what to call the same message.
-        const enviado = await socket.sendMessage(jid, messageObj);
+        // `opcoes` leva o { quoted } quando a mensagem responde outra. Vai
+        // como terceiro argumento porque e assim que o Baileys monta o
+        // contextInfo - dentro do messageObj ele seria ignorado.
+        const enviado = await socket.sendMessage(jid, messageObj, opcoes || {});
 
         // Record the message for rate limiting
         antiBanManager.recordMessage(jid);
