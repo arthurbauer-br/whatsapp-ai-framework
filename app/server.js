@@ -26,6 +26,7 @@ const { AntiBanManager, safeSendMessage, simulateTyping, delay, getQueueDepth, s
 const { loadSettings, getAntiBanSettings, updateAntiBanSettings } = require('./src/utils/settings');
 const midias = require('./src/utils/midias');
 const contatosWA = require('./src/utils/contatos');
+const respostas = require('./src/utils/respostas');
 
 // ========================================
 // CONFIGURATION
@@ -663,6 +664,11 @@ async function handleIncomingMessage(msg) {
         // profile-picture lookup. Not awaited and never throws: this is
         // decoration, it must not delay the reply.
         contatosWA.aoReceber(msg, phoneNumber);
+
+        // Citacao, quando o cliente responde uma mensagem especifica. Vai
+        // direto a API pelo message_id, como o anexo - o n8n nao precisa
+        // saber que isso existe.
+        respostas.guardar(msg, phoneNumber);
 
         // Store the attachment, if there is one.
         //
