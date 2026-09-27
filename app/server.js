@@ -34,7 +34,6 @@ const respostas = require('./src/utils/respostas');
 
 const fs = require('fs').promises;
 const fsSync = require('fs');
-const { google } = require('googleapis');
 
 const PORT = process.env.PORT || 3000;
 const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || 'YOUR_N8N_WEBHOOK_URL_HERE';
@@ -114,10 +113,6 @@ contatosWA.iniciar({
     dispatcher: PROXY_DISPATCHER,
     resolverNumero: (jid) => resolvePhoneNumber({ remoteJid: jid }),
 });
-
-// Google Drive Configuration
-const GOOGLE_CREDENTIALS_FILE = process.env.GOOGLE_CREDENTIALS_FILE || path.join(__dirname, 'google-credentials.json');
-const GOOGLE_DRIVE_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID || ''; // Folder ID from Google Drive URL
 
 // Reply sent when n8n is not configured.
 // Empty string = stay silent (nothing is sent to the contact).
@@ -352,29 +347,16 @@ async function backupAndClearLogs() {
         await fs.writeFile(backupFile, backupContent);
         console.log(`[Logs] Local backup saved to ${backupFile}`);
 
-        // Upload to Google Drive if configured
-        let googleDriveResult = null;
-        if (googleDriveClient) {
-            googleDriveResult = await uploadToGoogleDrive(backupFilename, backupContent);
-            if (googleDriveResult.success) {
-                console.log(`[Logs] ☁️ Cloud backup: ${googleDriveResult.webLink}`);
-            }
-        }
-
         // Clear current logs
         activityLog = [];
         logStartDate = new Date().toISOString();
         await saveLogsToFile();
 
-        const message = googleDriveResult?.success
-            ? 'Logs backed up to local + Google Drive (30-day cycle)'
-            : 'Logs backed up locally (30-day cycle)';
-        logActivity(message, 'info');
+        logActivity('Logs backed up locally (30-day cycle)', 'info');
 
         return {
             success: true,
-            backupFile,
-            googleDrive: googleDriveResult
+            backupFile
         };
     } catch (error) {
         console.error('[Logs] Backup error:', error);
@@ -391,99 +373,6 @@ function convertLogsToCSV(logs) {
         `"${(log.message || '').replace(/"/g, '""')}"`
     ]);
     return [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-}
-
-// ========================================
-// GOOGLE DRIVE INTEGRATION
-// ========================================
-
-let googleDriveClient = null;
-
-async function initGoogleDrive() {
-    // Check if credentials file exists
-    if (!fsSync.existsSync(GOOGLE_CREDENTIALS_FILE)) {
-        console.log('[Google Drive] No credentials file found - cloud backup disabled');
-        console.log('[Google Drive] To enable: place google-credentials.json in app folder');
-        return false;
-    }
-
-    if (!GOOGLE_DRIVE_FOLDER_ID) {
-        console.log('[Google Drive] No folder ID configured - cloud backup disabled');
-        console.log('[Google Drive] To enable: set GOOGLE_DRIVE_FOLDER_ID in .env');
-        return false;
-    }
-
-    try {
-        const credentials = JSON.parse(await fs.readFile(GOOGLE_CREDENTIALS_FILE, 'utf8'));
-        const auth = new google.auth.GoogleAuth({
-            credentials,
-            scopes: ['https://www.googleapis.com/auth/drive.file']
-        });
-        googleDriveClient = google.drive({ version: 'v3', auth });
-        console.log('[Google Drive] ✅ Connected - backups will sync to cloud');
-        return true;
-    } catch (error) {
-        console.error('[Google Drive] Failed to initialize:', error.message);
-        return false;
-    }
-}
-
-async function uploadToGoogleDrive(filename, content) {
-    if (!googleDriveClient) {
-        return { success: false, error: 'Google Drive not configured' };
-    }
-
-    try {
-        const { Readable } = require('stream');
-        const contentStream = Readable.from([content]);
-
-        const response = await googleDriveClient.files.create({
-            requestBody: {
-                name: filename,
-                parents: [GOOGLE_DRIVE_FOLDER_ID],
-                mimeType: 'application/json'
-            },
-            media: {
-                mimeType: 'application/json',
-                body: contentStream
-            },
-            fields: 'id, name, webViewLink'
-        });
-
-        console.log(`[Google Drive] ✅ Uploaded: ${filename}`);
-        return {
-            success: true,
-            fileId: response.data.id,
-            fileName: response.data.name,
-            webLink: response.data.webViewLink
-        };
-    } catch (error) {
-        console.error('[Google Drive] Upload failed:', error.message);
-        return { success: false, error: error.message };
-    }
-}
-
-async function listGoogleDriveBackups() {
-    if (!googleDriveClient) {
-        return { success: false, error: 'Google Drive not configured', files: [] };
-    }
-
-    try {
-        const response = await googleDriveClient.files.list({
-            q: `'${GOOGLE_DRIVE_FOLDER_ID}' in parents and mimeType='application/json' and trashed=false`,
-            fields: 'files(id, name, size, createdTime, webViewLink)',
-            orderBy: 'createdTime desc',
-            pageSize: 50
-        });
-
-        return {
-            success: true,
-            files: response.data.files || []
-        };
-    } catch (error) {
-        console.error('[Google Drive] List failed:', error.message);
-        return { success: false, error: error.message, files: [] };
-    }
 }
 
 // ========================================
@@ -1554,7 +1443,7 @@ app.post('/api/logs/backup', async (req, res) => {
     }
 });
 
-// List backup files (local + Google Drive)
+// List backup files
 app.get('/api/logs/backups', async (req, res) => {
     try {
         // Get local backups
@@ -1571,21 +1460,13 @@ app.get('/api/logs/backups', async (req, res) => {
         }
         localBackups.sort((a, b) => new Date(b.created) - new Date(a.created));
 
-        // Get Google Drive backups
-        const googleDriveResult = await listGoogleDriveBackups();
-        const cloudBackups = googleDriveResult.files.map(f => ({
-            filename: f.name,
-            size: parseInt(f.size) || 0,
-            created: f.createdTime,
-            location: 'google_drive',
-            webLink: f.webViewLink,
-            fileId: f.id
-        }));
-
+        // O painel ainda le googleDrive/googleDriveConnected. Ficam como
+        // lista vazia e false em vez de sumirem: assim a tela antiga nao
+        // quebra ao procurar os campos, e simplesmente nao mostra nada.
         res.json({
             local: localBackups,
-            googleDrive: cloudBackups,
-            googleDriveConnected: !!googleDriveClient,
+            googleDrive: [],
+            googleDriveConnected: false,
             logStartDate,
             currentLogCount: activityLog.length
         });
@@ -1679,9 +1560,6 @@ Initializing...
     // replies plus 30/h of outbound would let 80 messages out in an hour, and
     // WhatsApp counts the number, not our categories.
     sharedBudget.recalculate([antiBanManager, antiBanOutbound]);
-
-    // Initialize Google Drive (optional)
-    await initGoogleDrive();
 
     // Auto-start WhatsApp connection
     startWhatsApp();
