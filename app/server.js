@@ -27,6 +27,7 @@ const { loadSettings, getAntiBanSettings, updateAntiBanSettings } = require('./s
 const midias = require('./src/utils/midias');
 const contatosWA = require('./src/utils/contatos');
 const respostas = require('./src/utils/respostas');
+const logBaileys = require('./src/utils/log-baileys');
 
 // ========================================
 // CONFIGURATION
@@ -395,6 +396,11 @@ async function startWhatsApp() {
             // undici Dispatcher: media DOWNLOAD and history sync, on fetch().
             options: { dispatcher: PROXY_DISPATCHER },
             auth: state,
+            // Sem esta linha o Baileys usa o pino dele no nivel `info` e
+            // despeja o material do Signal (privKey, rootKey, chainKey) no
+            // `docker logs`, a cada troca de chave. Quem lesse esse arquivo
+            // teria como ler as conversas.
+            logger: logBaileys,
             printQRInTerminal: false // We display QR in web UI instead
         });
 
@@ -572,10 +578,20 @@ async function handleIncomingMessage(msg) {
                 });
         }
 
-        // Log with reply context if present
-        const replyContext = isReply ? ` (replying to: "${quotedText?.substring(0, 30)}...")` : '';
-        console.log(`[Message] From ${phoneNumber} [${messageType}]: ${messageText}${replyContext}`);
-        logActivity(`Received from ${phoneNumber}: ${messageText.substring(0, 50)}${messageText.length > 50 ? '...' : ''}`, 'info');
+        // O QUE o cliente escreveu nao entra no log.
+        //
+        // Antes esta linha imprimia a mensagem inteira, e a de baixo gravava
+        // os primeiros 50 caracteres no activityLog - que vai para disco, para
+        // o painel web e para o backup de 30 dias. Quem pegasse qualquer um
+        // desses teria o conteudo das conversas dos seus clientes.
+        //
+        // O que fica e o suficiente para operar: de quem veio, que tipo era,
+        // e se respondia outra mensagem. Para LER a conversa existe o
+        // aplicativo, que busca pelo canal cifrado.
+        const marcaResposta = isReply ? ' (resposta a outra mensagem)' : '';
+        const tamanho = messageText ? ` ${messageText.length} caracteres` : '';
+        console.log(`[Message] From ${phoneNumber} [${messageType}]${tamanho}${marcaResposta}`);
+        logActivity(`Received from ${phoneNumber} [${messageType}]`, 'info');
 
         // ========================================
         // ANTI-BAN: Check rate limits FIRST
