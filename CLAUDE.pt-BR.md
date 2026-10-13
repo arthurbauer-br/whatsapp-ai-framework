@@ -71,7 +71,6 @@ mcp__context7__resolve-library-id({ libraryName: "qrcode npm" })
 | Cliente HTTP | axios v1.6.0 |
 | Exibição do QR | qrcode v1.5.3 |
 | Configuração | dotenv v16.3.1 |
-| Backup na nuvem | googleapis v169.0.0 |
 | Gerenciador de processos | PM2 |
 | Orquestração da IA | n8n (externo) |
 | RAG | Cloudflare AutoRAG (externo) |
@@ -120,10 +119,7 @@ AI-chat-bot-whatsapp/
 ├── knowledge-base/              # Bases de conhecimento de exemplo
 │   └── urbania-knowledge-base.md
 │
-├── n8n-workflows/               # Workflows exportados do n8n
-│
-├── cloudflare/                  # OBSOLETO (época da Evolution API)
-└── evolution/                   # OBSOLETO
+└── n8n-workflows/               # Workflows exportados do n8n
 ```
 
 ---
@@ -243,10 +239,6 @@ N8N_WEBHOOK_URL=https://n8n.example.com/webhook/whatsapp
 
 # Segurança (OPCIONAL)
 ADMIN_PASSWORD=your-password
-
-# Backup no Google Drive (OPCIONAL)
-GOOGLE_CREDENTIALS_FILE=./google-credentials.json
-GOOGLE_DRIVE_FOLDER_ID=folder-id
 ```
 
 ---
@@ -265,7 +257,7 @@ GOOGLE_DRIVE_FOLDER_ID=folder-id
 
 ## Observações importantes
 
-1. **A arquitetura mudou**: a Evolution API está obsoleta. Usamos o Baileys diretamente.
+1. **A arquitetura mudou**: a Evolution API foi abandonada (as pastas `evolution/` e `cloudflare/` foram removidas). Usamos o Baileys diretamente.
 2. **QR no navegador**: mostre o QR na interface web, não no terminal
 3. **Webhook do n8n**: o Node.js repassa ao n8n e devolve as respostas
 4. **Transferência para humano**: tratada no n8n; o Node.js confere o `response.skip`
