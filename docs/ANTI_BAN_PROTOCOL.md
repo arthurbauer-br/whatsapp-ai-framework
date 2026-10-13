@@ -1,5 +1,7 @@
 # WhatsApp Anti-Ban Protocol
 
+*[Leia em português](./ANTI_BAN_PROTOCOL.pt-BR.md)*
+
 > **Version:** 1.0
 > **Last Updated:** December 17, 2025
 > **Purpose:** Risk reduction strategies for WhatsApp automation using Baileys

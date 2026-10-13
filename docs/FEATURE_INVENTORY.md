@@ -1,5 +1,7 @@
 # WhatsApp AI Chatbot - Complete Feature Inventory
 
+*[Leia em português](./FEATURE_INVENTORY.pt-BR.md)*
+
 > **Last Updated:** December 17, 2025
 > **Version:** 1.0
 > **Project:** AI-chat-bot-whatsapp

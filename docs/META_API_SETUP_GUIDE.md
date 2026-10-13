@@ -1,5 +1,7 @@
 # Meta WhatsApp Business API - Setup Guide
 
+*[Leia em português](./META_API_SETUP_GUIDE.pt-BR.md)*
+
 This guide walks through setting up the official Meta WhatsApp Business API for production use.
 
 ---

@@ -1,5 +1,7 @@
 # Claude Code Instructions for WhatsApp AI Chatbot
 
+*[Leia em português](./CLAUDE.pt-BR.md)*
+
 > **Last Updated:** December 17, 2025
 
 This file provides project-specific instructions for Claude Code sessions.

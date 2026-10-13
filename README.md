@@ -1,5 +1,7 @@
 # WhatsApp AI Framework (Community Edition)
 
+*[Leia em português](./README.pt-BR.md)*
+
 > **A production-ready WhatsApp automation framework featuring Anti-Ban protection, n8n integration, and RAG support.**
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
