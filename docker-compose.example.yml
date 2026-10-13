@@ -1,0 +1,94 @@
+# Example Docker Compose for the WhatsApp bot, based on a real VPS deployment.
+#
+#   cp docker-compose.example.yml docker-compose.yml
+#   cp .env.example .env          # then fill in .env
+#   docker compose up -d --build
+#
+# Only what the bot needs is here: the bot itself and n8n (its "brain"). If
+# your n8n runs somewhere else, delete the n8n service and point the webhook
+# URL at it.
+#
+# The proxy is NOT part of this file: the bot only needs an HTTP proxy URL in
+# P2SPEED_PROXY, and how you provide it is up to you - a residential proxy
+# provider, a Squid/tinyproxy on a home connection, a tunnel, anything that
+# speaks HTTP CONNECT. If it runs as a container, add it here so it shares the
+# bot's network.
+#
+# Paths are relative to this file, which sits at the root of the repository.
+
+# Every service uses the same log rotation. Without it the Docker log grows
+# until the disk fills, and keeps forever everything that was ever printed.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  whatsapp-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: whatsapp-bot
+    logging: *logging
+    restart: unless-stopped
+    # Compose passes ONLY the variables listed here into the container -
+    # putting a new one in .env is not enough. Changing this list needs
+    # "docker compose up -d", not "restart".
+    environment:
+      # Required: HTTP proxy for all WhatsApp traffic. Without it the bot
+      # refuses to start (fail-closed), so it never connects from the
+      # datacenter IP.
+      - P2SPEED_PROXY=${P2SPEED_PROXY}
+      # Shared secret of POST /api/send. Empty = route disabled.
+      - N8N_TOKEN=${N8N_TOKEN:-}
+      # Optional: can also be set from the admin panel (saved in settings.json).
+      - N8N_WEBHOOK_URL=${N8N_WEBHOOK_URL:-}
+      # Optional: Bearer token for the /api routes. Empty = no password.
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+      # Optional: reply sent while no n8n webhook is set. Empty = silence.
+      - DEFAULT_REPLY=${DEFAULT_REPLY:-}
+      # Baileys log level. Keep "error": "info" and above can leak sensitive data.
+      - BAILEYS_LOG=${BAILEYS_LOG:-error}
+      # Max "is this number on WhatsApp?" checks per hour (POST /api/verificar).
+      - VERIFICA_MAX_HORA=${VERIFICA_MAX_HORA:-40}
+      # The anti-ban delays depend on the hour of the day, so the container
+      # must run on YOUR clock, not UTC.
+      - TZ=${TZ:-America/Sao_Paulo}
+      - PORT=3000
+    volumes:
+      # WhatsApp session. Lose this folder and you have to scan the QR again.
+      - ./app/auth_info:/app/auth_info
+      # Anti-ban limits and webhook URL edited in the panel. This FILE must
+      # exist before the first "up" - if it doesn't, Docker creates a folder
+      # with that name and the bot can't save its settings.
+      - ./app/settings.json:/app/settings.json
+    ports:
+      # Loopback only. To reach the panel from outside, put it behind a
+      # reverse proxy with authentication or an SSH tunnel, never directly.
+      - "127.0.0.1:3000:3000"
+    stdin_open: true
+    tty: true
+
+  # Optional: drop this service if your n8n runs elsewhere. Both services share
+  # the project's default network, so the bot reaches it as
+  # http://n8n:5678/webhook/<your-path>.
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n
+    logging: *logging
+    user: "1000:1000"
+    restart: unless-stopped
+    environment:
+      - N8N_PORT=5678
+      - TZ=${TZ:-America/Sao_Paulo}
+      - GENERIC_TIMEZONE=${TZ:-America/Sao_Paulo}
+      # Encrypts the credentials n8n stores. Lose it and every saved
+      # credential has to be typed in again.
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - N8N_USER_FOLDER=/home/node/.n8n
+      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=false
+    volumes:
+      - ./n8n-data:/home/node/.n8n
+    ports:
+      - "127.0.0.1:5678:5678"
