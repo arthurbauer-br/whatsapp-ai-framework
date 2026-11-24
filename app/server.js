@@ -525,6 +525,35 @@ async function resolvePhoneNumber(key) {
 }
 
 /**
+ * Fila por contato para as chamadas ao n8n.
+ *
+ * Quem escreve costuma mandar varias linhas seguidas ("oi" / "tudo bem?" /
+ * "quero assinar"). Sem fila, as tres chegavam ao n8n no mesmo instante, e as
+ * tres liam o estado da conversa ANTES de a primeira grava-lo: cada uma
+ * achava que era o primeiro contato e respondia de novo - a mensagem de
+ * boas-vindas saia tres vezes.
+ *
+ * Com a fila, a segunda linha so vai ao n8n depois que a primeira voltou, e
+ * o n8n grava o estado antes de responder. A segunda ja encontra a conversa
+ * no estado novo (ex.: "humano") e o fluxo decide sozinho que nao repete.
+ *
+ * So a chamada ao n8n entra na fila: o atraso do anti-ban e a digitacao
+ * continuam onde estavam. Contatos diferentes nao esperam um pelo outro.
+ * A entrada do Map some quando a fila daquele contato esvazia.
+ */
+const filaPorContato = new Map();
+function porContato(chave, tarefa) {
+    const anterior = filaPorContato.get(chave) || Promise.resolve();
+    const atual = anterior.then(tarefa);
+    const fim = atual.catch(() => {});
+    filaPorContato.set(chave, fim);
+    fim.then(() => {
+        if (filaPorContato.get(chave) === fim) filaPorContato.delete(chave);
+    });
+    return atual;
+}
+
+/**
  * Handle incoming WhatsApp message
  * Implements anti-ban protections: rate limiting, typing indicators, human-like delays
  */
@@ -664,9 +693,10 @@ async function handleIncomingMessage(msg) {
             messageType: messageType
         };
 
-        const response = await axios.post(activeWebhookUrl, webhookPayload, {
+        // Uma chamada ao n8n por contato de cada vez (ver porContato).
+        const response = await porContato(from, () => axios.post(activeWebhookUrl, webhookPayload, {
             timeout: 30000 // 30 second timeout
-        });
+        }));
 
         console.log('[Message] n8n response received');
 
